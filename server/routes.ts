@@ -38,26 +38,36 @@ const verifyAuth = async (req: AuthRequest, res: Response, next: NextFunction) =
 };
 
 // Upload and analyze image
-router.post("/api/analysis", verifyAuth, async (req: AuthRequest, res: Response) => {
+router.post("/api/analysis", async (req: Request, res: Response) => {
   try {
+    console.log("Received analysis request", { files: req.files });
+    
     if (!req.files || !req.files.image) {
-      throw new Error("No image provided");
+      console.log("No image found in request");
+      return res.status(400).json({ error: "No image provided" });
     }
 
     const image = req.files.image as UploadedFile;
+    console.log("Received image", { 
+      name: image.name,
+      size: image.size,
+      mimetype: image.mimetype 
+    });
     
     // Validate file type
     if (!image.mimetype.startsWith('image/')) {
-      throw new Error("Invalid file type. Please upload an image.");
+      return res.status(400).json({ 
+        error: "Invalid file type. Please upload an image." 
+      });
     }
 
     // Validate file size (max 10MB)
     const maxSize = 10 * 1024 * 1024;
     if (image.size > maxSize) {
-      throw new Error("File too large. Maximum size is 10MB.");
+      return res.status(400).json({ 
+        error: "File too large. Maximum size is 10MB." 
+      });
     }
-
-    if (!req.user?.uid) throw new Error("User not authenticated");
 
     // Analyze image with Anthropic
     const response = await anthropic.messages.create({

@@ -19,48 +19,53 @@ export default function ImageUpload() {
   };
 
   const handleAnalyze = async () => {
-    if (!selectedImage) return;
+    if (!selectedImage) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select an image first",
+      });
+      return;
+    }
     
     setIsUploading(true);
     setProgress(0);
 
     try {
+      console.log("Starting image analysis...");
       const formData = new FormData();
       formData.append("image", selectedImage);
 
-      const token = await auth.currentUser?.getIdToken();
-      if (!token) {
-        throw new Error("Please sign in to analyze images");
-      }
-
       const response = await fetch("/api/analysis", {
         method: "POST",
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
         body: formData,
       });
 
+      console.log("Response status:", response.status);
+      const responseText = await response.text();
+      console.log("Response text:", responseText);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Analysis failed");
+        throw new Error(responseText || "Analysis failed");
       }
 
-      const result = await response.json();
+      const result = JSON.parse(responseText);
+      console.log("Analysis result:", result);
       
       toast({
         title: "Analysis Complete",
-        description: `Result: ${result.result} (${(result.confidence * 100).toFixed(1)}% confidence)`,
+        description: `Result: ${result.result} (${(parseFloat(result.confidence) * 100).toFixed(1)}% confidence)`,
       });
 
       // Reset the form
       setSelectedImage(null);
       setPreviewUrl(null);
     } catch (error) {
+      console.error("Analysis error:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: (error as Error).message,
+        description: error instanceof Error ? error.message : "Failed to analyze image",
       });
     } finally {
       setIsUploading(false);
