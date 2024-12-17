@@ -20,7 +20,13 @@ export const analyses = pgTable("analyses", {
   userId: text("user_id").references(() => users.firebaseId).notNull(),
   imageUrl: text("image_url").notNull(),
   result: text("result").notNull(),
-  confidence: decimal("confidence").notNull(),
+  confidence: decimal("confidence", { precision: 4, scale: 3 }).notNull(),
+  explanation: text("explanation").notNull(),
+  recommendations: text("recommendations"),
+  severity: text("severity").notNull(),
+  status: text("status").notNull().default('pending'),
+  patientNotes: text("patient_notes"),
+  followUpDate: timestamp("follow_up_date"),
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 

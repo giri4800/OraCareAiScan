@@ -5,17 +5,27 @@ import { Progress } from "@/components/ui/progress";
 import { Camera, Upload } from "lucide-react";
 
 export default function ImageUpload() {
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const { toast } = useToast();
 
-  const handleFileUpload = async (file: File) => {
+  const handleImageSelect = (file: File) => {
+    setSelectedImage(file);
+    const imageUrl = URL.createObjectURL(file);
+    setPreviewUrl(imageUrl);
+  };
+
+  const handleAnalyze = async () => {
+    if (!selectedImage) return;
+    
     setIsUploading(true);
     setProgress(0);
 
     try {
       const formData = new FormData();
-      formData.append("image", file);
+      formData.append("image", selectedImage);
 
       const response = await fetch("/api/analysis", {
         method: "POST",
@@ -23,13 +33,19 @@ export default function ImageUpload() {
       });
 
       if (!response.ok) {
-        throw new Error("Upload failed");
+        throw new Error("Analysis failed");
       }
 
+      const result = await response.json();
+      
       toast({
-        title: "Success",
-        description: "Image uploaded and analyzed successfully",
+        title: "Analysis Complete",
+        description: `Result: ${result.result} (${(result.confidence * 100).toFixed(1)}% confidence)`,
       });
+
+      // Reset the form
+      setSelectedImage(null);
+      setPreviewUrl(null);
     } catch (error) {
       toast({
         variant: "destructive",
@@ -38,6 +54,7 @@ export default function ImageUpload() {
       });
     } finally {
       setIsUploading(false);
+      setProgress(100);
     }
   };
 
@@ -56,7 +73,7 @@ export default function ImageUpload() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
         <Button
           onClick={() => document.getElementById("file-upload")?.click()}
@@ -79,15 +96,45 @@ export default function ImageUpload() {
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) handleFileUpload(file);
+          if (file) handleImageSelect(file);
         }}
       />
+
+      {previewUrl && (
+        <div className="space-y-4">
+          <div className="aspect-video relative rounded-lg overflow-hidden border">
+            <img
+              src={previewUrl}
+              alt="Preview"
+              className="object-contain w-full h-full"
+            />
+          </div>
+          
+          <Button
+            className="w-full"
+            onClick={handleAnalyze}
+            disabled={isUploading}
+          >
+            {isUploading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Analyzing...
+              </>
+            ) : (
+              <>
+                <Search className="mr-2 h-4 w-4" />
+                Analyze Image
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {isUploading && (
         <div className="space-y-2">
           <Progress value={progress} />
           <p className="text-sm text-gray-500 text-center">
-            Uploading and analyzing...
+            {progress === 100 ? 'Analysis complete!' : 'Analyzing image...'}
           </p>
         </div>
       )}
