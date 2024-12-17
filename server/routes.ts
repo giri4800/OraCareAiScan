@@ -1,16 +1,9 @@
 import { Router } from "express";
-import { Request, Response, NextFunction } from "express";
-import { db } from "@db";
-import { analyses } from "@db/schema";
-import { auth } from "./lib/firebase";
+import { Request, Response } from "express";
 import { Anthropic } from "@anthropic-ai/sdk";
 import { UploadedFile } from "express-fileupload";
-import { and, eq } from "drizzle-orm";
-import type { DecodedIdToken } from "firebase-admin/auth";
-
-interface AuthRequest extends Request {
-  user?: DecodedIdToken;
-}
+import { createServer, type Server } from "http";
+import type { Express } from "express";
 
 const router = Router();
 
@@ -18,24 +11,10 @@ if (!process.env.ANTHROPIC_API_KEY) {
   throw new Error("ANTHROPIC_API_KEY environment variable is required");
 }
 
-// the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
+// Initialize Anthropic client
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
-
-// Middleware to verify Firebase auth token
-const verifyAuth = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const token = req.headers.authorization?.split("Bearer ")[1];
-    if (!token) throw new Error("No token provided");
-    
-    const decodedToken = await auth.verifyIdToken(token);
-    req.user = decodedToken;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: "Unauthorized" });
-  }
-};
 
 // Upload and analyze image
 router.post("/api/analysis", async (req: Request, res: Response) => {
@@ -51,7 +30,7 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
     console.log("Processing image:", { 
       name: image.name,
       size: image.size,
-      mimetype: image.mimetype
+      mimetype: image.mimetype 
     });
 
     // Validate file type
@@ -69,22 +48,12 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
       });
     }
 
-    // Convert mimetype to one of the supported formats
-    let mediaType = 'image/jpeg'; // default
-    if (image.mimetype === 'image/png') {
-      mediaType = 'image/png';
-    } else if (image.mimetype === 'image/gif') {
-      mediaType = 'image/gif';
-    } else if (image.mimetype === 'image/webp') {
-      mediaType = 'image/webp';
-    }
-
-    // Read image data and convert to base64
-    const imageBuffer = image.data;
-    const base64Image = imageBuffer.toString('base64');
+    // Convert image to base64
+    const base64Image = image.data.toString('base64');
     console.log("Image converted to base64, length:", base64Image.length);
 
     // Analyze image with Anthropic
+    console.log("Sending request to Anthropic API...");
     const response = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1024,
@@ -99,13 +68,19 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
             type: "image",
             source: {
               type: "base64",
-              media_type: "image/jpeg",
+              media_type: image.mimetype,
               data: base64Image
             }
           }
         ]
       }]
     });
+
+    console.log("Received response from Anthropic API");
+
+    if (!response.content || response.content.length === 0) {
+      throw new Error("Empty response from Anthropic API");
+    }
 
     const analysisText = response.content[0].type === 'text' ? response.content[0].text : 'Analysis unavailable';
     let analysisResult;
@@ -120,71 +95,29 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
       };
     }
 
-    // Save analysis result to database
-    const [analysis] = await db
-      .insert(analyses)
-      .values({
-        userId: req.user.uid,
-        imageUrl: "placeholder_url", // TODO: Implement Firebase Storage
-        result: analysisResult.result,
-        confidence: analysisResult.confidence.toString(),
-        timestamp: new Date(),
-      })
-      .returning();
-
-    // Return analysis with the full result including explanation
     res.json({
-      ...analysis,
-      explanation: analysisResult.explanation
+      id: 'temp-' + Date.now(),
+      result: analysisResult.result,
+      confidence: analysisResult.confidence,
+      explanation: analysisResult.explanation,
+      imageUrl: `data:${image.mimetype};base64,${base64Image}`,
+      timestamp: new Date()
     });
+
   } catch (error) {
     console.error('Analysis error:', error);
+    
+    // Check if it's an Anthropic API error
+    if ((error as any)?.status === 400) {
+      return res.status(400).json({ 
+        error: "Invalid image format or content. Please try a different image."
+      });
+    }
+    
     const message = error instanceof Error ? error.message : "Internal server error";
     res.status(500).json({ error: message });
   }
 });
-
-// Get analysis history
-router.get("/api/analysis/history", verifyAuth, async (req: AuthRequest, res: Response) => {
-  try {
-    if (!req.user?.uid) throw new Error("User not authenticated");
-    
-    const history = await db.query.analyses.findMany({
-      where: eq(analyses.userId, req.user.uid),
-      orderBy: [analyses.timestamp],
-    });
-    
-    res.json(history);
-  } catch (error) {
-    console.error('History fetch error:', error);
-    const message = error instanceof Error ? error.message : "Internal server error";
-    res.status(500).json({ error: message });
-  }
-});
-
-// Delete analysis
-router.delete("/api/analysis/:id", verifyAuth, async (req: AuthRequest, res: Response) => {
-  try {
-    if (!req.user?.uid) throw new Error("User not authenticated");
-    
-    await db.delete(analyses).where(
-      and(
-        eq(analyses.id, req.params.id),
-        eq(analyses.userId, req.user.uid)
-      )
-    );
-    
-    res.status(204).send();
-  } catch (error) {
-    console.error('Delete error:', error);
-    const message = error instanceof Error ? error.message : "Internal server error";
-    res.status(500).json({ error: message });
-  }
-});
-
-import type { Express } from "express";
-import type { Server } from "http";
-import { createServer } from "http";
 
 export function registerRoutes(app: Express): Server {
   // Apply the router middleware
