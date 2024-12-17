@@ -34,7 +34,7 @@ export default function ImageUpload() {
     try {
       // Create form data
       const formData = new FormData();
-      formData.append("image", selectedImage);
+      formData.append("image", selectedImage, selectedImage.name);
 
       // Start upload
       setProgress(50);
@@ -43,6 +43,10 @@ export default function ImageUpload() {
       const response = await fetch("/api/analysis", {
         method: "POST",
         body: formData,
+        headers: {
+          // Do not set Content-Type header, let the browser set it for FormData
+          'Accept': 'application/json',
+        }
       });
 
       setProgress(75);

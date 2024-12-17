@@ -80,8 +80,9 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
     }
 
     // Read image data and convert to base64
-    const imageData = image.data.toString('base64');
-    console.log("Image converted to base64, length:", imageData.length);
+    const imageBuffer = image.data;
+    const base64Image = imageBuffer.toString('base64');
+    console.log("Image converted to base64, length:", base64Image.length);
 
     // Analyze image with Anthropic
     const response = await anthropic.messages.create({
@@ -98,8 +99,8 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
             type: "image",
             source: {
               type: "base64",
-              media_type: mediaType,
-              data: imageData
+              media_type: "image/jpeg",
+              data: base64Image
             }
           }
         ]
