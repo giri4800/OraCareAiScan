@@ -18,7 +18,7 @@ export default function ImageUpload() {
       toast({
         variant: "destructive",
         title: "Invalid File Type",
-        description: "Please select a JPEG, PNG, GIF, or WebP image file",
+        description: `Please select a valid image file (${validTypes.join(", ")})`,
       });
       return;
     }

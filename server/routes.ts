@@ -19,43 +19,44 @@ const anthropic = new Anthropic({
 // Upload and analyze image
 router.post("/api/analysis", async (req: Request, res: Response) => {
   try {
-    if (!req.files || Object.keys(req.files).length === 0) {
-      console.log("No files were uploaded");
-      return res.status(400).json({ error: "No files were uploaded" });
+    console.log("Received analysis request");
+    
+    if (!req.files || !req.files.image) {
+      console.log("No image file received");
+      return res.status(400).json({ error: "No image file received" });
     }
 
     const image = req.files.image as UploadedFile;
-    
+    console.log("Received file:", {
+      name: image.name,
+      type: image.mimetype,
+      size: image.size
+    });
+
     // Validate file type
-    if (!image.mimetype.startsWith('image/')) {
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validTypes.includes(image.mimetype)) {
       console.log("Invalid file type:", image.mimetype);
-      return res.status(400).json({ error: "Invalid file type. Please upload an image." });
+      return res.status(400).json({ 
+        error: `Invalid file type. Supported types: ${validTypes.join(", ")}` 
+      });
     }
 
     // Validate file size (max 5MB)
     const maxSize = 5 * 1024 * 1024;
     if (image.size > maxSize) {
       console.log("File too large:", image.size);
-      return res.status(400).json({ error: "File too large. Maximum size is 5MB." });
+      return res.status(400).json({ 
+        error: "File too large. Maximum size is 5MB" 
+      });
     }
-
-    console.log("Processing image:", {
-      name: image.name,
-      type: image.mimetype,
-      size: image.size
-    });
 
     // Convert image to base64
     const base64Image = image.data.toString('base64');
-    
-    if (!base64Image) {
-      console.log("Failed to convert image to base64");
-      return res.status(400).json({ error: "Failed to process image" });
-    }
-
-    console.log("Image converted to base64 successfully");
+    console.log("Image converted to base64");
 
     // Send to Anthropic API
+    console.log("Sending request to Anthropic API");
     const response = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1024,
@@ -70,7 +71,7 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
             type: "image",
             source: {
               type: "base64",
-              media_type: image.mimetype,
+              media_type: validTypes.includes(image.mimetype) ? image.mimetype : 'image/jpeg',
               data: base64Image
             }
           }
@@ -95,6 +96,7 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
       analysisResult = JSON.parse(analysisText);
     } catch (error) {
       console.log("Failed to parse API response:", error);
+      // Extract result from text if JSON parsing fails
       analysisResult = {
         result: analysisText.includes('Concerning') ? 'Concerning' : 'Normal',
         confidence: 0.95,
