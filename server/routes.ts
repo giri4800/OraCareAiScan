@@ -72,13 +72,16 @@ router.post("/api/analysis", verifyAuth, async (req: AuthRequest, res: Response)
       const analysisText = response.content[0].type === 'text' ? response.content[0].text : 'Analysis unavailable';
       const result = analysisText.includes('RESULT: Concerning') ? 'Concerning' : 'Normal';
       
-      const [analysis] = await db.insert(analyses).values({
-        userId: req.user.uid,
-        imageUrl: "placeholder_url", // TODO: Implement Firebase Storage
-        result: result,
-        confidence: 0.95,
-        timestamp: new Date(),
-      }).returning();
+      const [analysis] = await db
+        .insert(analyses)
+        .values({
+          userId: req.user.uid,
+          imageUrl: "placeholder_url", // TODO: Implement Firebase Storage
+          result: result,
+          confidence: "0.95", // Store as string since it's a decimal in the schema
+          timestamp: new Date(),
+        })
+        .returning();
 
     res.json(analysis);
   } catch (error) {
