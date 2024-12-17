@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Camera, Upload } from "lucide-react";
+import { Camera, Upload, Search, Loader2 } from "lucide-react";
 
 export default function ImageUpload() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -73,19 +73,28 @@ export default function ImageUpload() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
+    <div className="w-full max-w-2xl mx-auto space-y-6 p-6">
+      <div className="grid grid-cols-2 gap-6">
         <Button
+          variant="outline"
+          size="lg"
+          className="h-24 flex flex-col items-center justify-center gap-2"
           onClick={() => document.getElementById("file-upload")?.click()}
           disabled={isUploading}
         >
-          <Upload className="mr-2 h-4 w-4" />
-          Upload Image
+          <Upload className="h-6 w-6" />
+          <span>Upload Image</span>
         </Button>
         
-        <Button onClick={handleCapture} disabled={isUploading}>
-          <Camera className="mr-2 h-4 w-4" />
-          Use Camera
+        <Button
+          variant="outline"
+          size="lg"
+          className="h-24 flex flex-col items-center justify-center gap-2"
+          onClick={handleCapture}
+          disabled={isUploading}
+        >
+          <Camera className="h-6 w-6" />
+          <span>Use Camera</span>
         </Button>
       </div>
 
@@ -101,8 +110,8 @@ export default function ImageUpload() {
       />
 
       {previewUrl && (
-        <div className="space-y-4">
-          <div className="aspect-video relative rounded-lg overflow-hidden border">
+        <div className="space-y-6 bg-card p-6 rounded-lg border">
+          <div className="aspect-[4/3] relative rounded-lg overflow-hidden border bg-background">
             <img
               src={previewUrl}
               alt="Preview"
@@ -111,18 +120,19 @@ export default function ImageUpload() {
           </div>
           
           <Button
-            className="w-full"
+            size="lg"
+            className="w-full text-lg"
             onClick={handleAnalyze}
             disabled={isUploading}
           >
             {isUploading ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-3 h-5 w-5 animate-spin" />
                 Analyzing...
               </>
             ) : (
               <>
-                <Search className="mr-2 h-4 w-4" />
+                <Search className="mr-3 h-5 w-5" />
                 Analyze Image
               </>
             )}
@@ -131,9 +141,9 @@ export default function ImageUpload() {
       )}
 
       {isUploading && (
-        <div className="space-y-2">
-          <Progress value={progress} />
-          <p className="text-sm text-gray-500 text-center">
+        <div className="space-y-3 bg-card p-4 rounded-lg border">
+          <Progress value={progress} className="h-2" />
+          <p className="text-sm text-muted-foreground text-center font-medium">
             {progress === 100 ? 'Analysis complete!' : 'Analyzing image...'}
           </p>
         </div>
