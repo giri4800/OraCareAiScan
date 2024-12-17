@@ -12,12 +12,19 @@ export default function ImageUpload() {
   const { toast } = useToast();
 
   const handleImageSelect = (file: File) => {
+    console.log("Selected file:", {
+      name: file.name,
+      type: file.type,
+      size: file.size
+    });
+    
     // Validate file type
-    if (!file.type.startsWith('image/')) {
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
       toast({
         variant: "destructive",
-        title: "Error",
-        description: "Please select a valid image file",
+        title: "Invalid File Type",
+        description: "Please select a JPEG, PNG, GIF, or WebP image file",
       });
       return;
     }

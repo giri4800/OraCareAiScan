@@ -49,12 +49,28 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
     }
 
     // Convert image to base64
-    const base64Image = image.data.toString('base64');
+    const base64Image = Buffer.from(image.data).toString('base64');
     console.log("Image converted to base64, length:", base64Image.length);
+      
+    if (!base64Image || base64Image.length === 0) {
+      console.error("Base64 conversion failed - empty result");
+      return res.status(400).json({ error: "Failed to process image" });
+    }
+      
+    // Validate mime type more strictly
+    const validMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validMimeTypes.includes(image.mimetype)) {
+      console.error("Invalid mime type:", image.mimetype);
+      return res.status(400).json({ 
+        error: "Invalid image format. Please upload a JPEG, PNG, GIF, or WebP image." 
+      });
+    }
 
     // Analyze image with Anthropic
     console.log("Sending request to Anthropic API...");
-    const response = await anthropic.messages.create({
+    console.log("Preparing Anthropic API request with image type:", image.mimetype);
+    
+    const message = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1024,
       messages: [{
@@ -74,7 +90,12 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
           }
         ]
       }]
-    });
+    };
+    
+    console.log("Sending request to Anthropic API with content types:", 
+      message.messages[0].content.map(c => c.type));
+    
+    const response = await anthropic.messages.create(message);
 
     console.log("Received response from Anthropic API");
 
