@@ -4,8 +4,11 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { UploadedFile } from "express-fileupload";
 import { createServer, type Server } from "http";
 import type { Express } from "express";
+import * as fs from 'fs';
+import { promisify } from 'util';
 
 const router = Router();
+const readFile = promisify(fs.readFile);
 
 if (!process.env.ANTHROPIC_API_KEY) {
   throw new Error("ANTHROPIC_API_KEY environment variable is required");
@@ -52,85 +55,83 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
     }
 
     // Convert image to base64
-    let base64Image;
-    if (Buffer.isBuffer(image.data)) {
-      base64Image = image.data.toString('base64');
-    } else if (typeof image.data === 'string') {
-      base64Image = image.data.replace(/^data:image\/\w+;base64,/, '');
-    } else {
-      throw new Error("Invalid image data format");
-    }
-    
-    if (!base64Image) {
-      throw new Error("Failed to convert image to base64");
-    }
-    
-    console.log("Image converted to base64, length:", base64Image.length);
-
-    // Send to Anthropic API
-    console.log("Sending request to Anthropic API");
-    const imageType = validTypes.includes(image.mimetype) ? image.mimetype : 'image/jpeg';
-    console.log("Using image type:", imageType);
-    console.log("Base64 image length:", base64Image.length);
-
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 1024,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Please analyze this oral cavity image for signs of cancer. Provide a detailed assessment in JSON format with the following structure: { result: 'Normal' or 'Concerning', confidence: number between 0-1, explanation: string with detailed findings }. Focus on identifying any suspicious lesions, abnormal growths, or discoloration that might indicate early signs of oral cancer."
-          },
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: imageType,
-              data: base64Image.replace(/^data:image\/\w+;base64,/, '')
-            }
-          }
-        ]
-      }]
-    });
-
-    if (!response.content || response.content.length === 0) {
-      console.log("Empty response from Anthropic API");
-      throw new Error("Empty response from Anthropic API");
-    }
-
-    const analysisText = response.content[0].type === 'text' ? response.content[0].text : null;
-    if (!analysisText) {
-      throw new Error("Invalid response format from API");
-    }
-
-    console.log("Raw analysis response:", analysisText);
-
-    let analysisResult;
+    let base64Image: string;
     try {
-      analysisResult = JSON.parse(analysisText);
-    } catch (error) {
-      console.log("Failed to parse API response:", error);
-      // Extract result from text if JSON parsing fails
-      analysisResult = {
-        result: analysisText.includes('Concerning') ? 'Concerning' : 'Normal',
-        confidence: 0.95,
-        explanation: analysisText
+      if (image.tempFilePath) {
+        const imageBuffer = await readFile(image.tempFilePath);
+        base64Image = imageBuffer.toString('base64');
+      } else if (Buffer.isBuffer(image.data)) {
+        base64Image = image.data.toString('base64');
+      } else {
+        throw new Error("Invalid image data format");
+      }
+
+      console.log("Image converted to base64, length:", base64Image.length);
+
+      // the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
+      const response = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 1024,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Please analyze this oral cavity image for signs of cancer. Provide a detailed assessment in JSON format with the following structure: { result: 'Normal' or 'Concerning', confidence: number between 0-1, explanation: string with detailed findings }. Focus on identifying any suspicious lesions, abnormal growths, or discoloration that might indicate early signs of oral cancer."
+            },
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: image.mimetype as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+                data: base64Image
+              }
+            }
+          ]
+        }]
+      });
+
+      console.log("Anthropic API response received");
+
+      if (!response.content || response.content.length === 0) {
+        throw new Error("Empty response from Anthropic API");
+      }
+
+      const analysisText = response.content[0].type === 'text' ? response.content[0].text : '';
+      if (!analysisText) {
+        throw new Error("Invalid response format from API");
+      }
+
+      console.log("Raw analysis response:", analysisText);
+
+      let analysisResult;
+      try {
+        analysisResult = JSON.parse(analysisText);
+      } catch (error) {
+        console.log("Failed to parse API response:", error);
+        analysisResult = {
+          result: analysisText.includes('Concerning') ? 'Concerning' : 'Normal',
+          confidence: 0.95,
+          explanation: analysisText
+        };
+      }
+
+      const result = {
+        id: 'temp-' + Date.now(),
+        result: analysisResult.result,
+        confidence: analysisResult.confidence,
+        explanation: analysisResult.explanation,
+        imageUrl: `data:${image.mimetype};base64,${base64Image}`,
+        timestamp: new Date()
       };
+
+      console.log("Sending analysis result");
+      res.json(result);
+
+    } catch (error) {
+      console.error('Image processing error:', error);
+      throw error;
     }
-
-    const result = {
-      id: 'temp-' + Date.now(),
-      result: analysisResult.result,
-      confidence: analysisResult.confidence,
-      explanation: analysisResult.explanation,
-      imageUrl: `data:${image.mimetype};base64,${base64Image}`,
-      timestamp: new Date()
-    };
-
-    console.log("Sending analysis result");
-    res.json(result);
 
   } catch (error) {
     console.error('Analysis error:', error);
