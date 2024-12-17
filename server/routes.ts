@@ -40,7 +40,7 @@ const verifyAuth = async (req: AuthRequest, res: Response, next: NextFunction) =
 // Upload and analyze image
 router.post("/api/analysis", async (req: Request, res: Response) => {
   try {
-    console.log("Received analysis request", { files: req.files });
+    console.log("Received analysis request");
     
     if (!req.files || !req.files.image) {
       console.log("No image found in request");
@@ -48,12 +48,12 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
     }
 
     const image = req.files.image as UploadedFile;
-    console.log("Received image", { 
+    console.log("Processing image:", { 
       name: image.name,
       size: image.size,
-      mimetype: image.mimetype 
+      mimetype: image.mimetype
     });
-    
+
     // Validate file type
     if (!image.mimetype.startsWith('image/')) {
       return res.status(400).json({ 
@@ -68,6 +68,20 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
         error: "File too large. Maximum size is 10MB." 
       });
     }
+
+    // Convert mimetype to one of the supported formats
+    let mediaType = 'image/jpeg'; // default
+    if (image.mimetype === 'image/png') {
+      mediaType = 'image/png';
+    } else if (image.mimetype === 'image/gif') {
+      mediaType = 'image/gif';
+    } else if (image.mimetype === 'image/webp') {
+      mediaType = 'image/webp';
+    }
+
+    // Read image data and convert to base64
+    const imageData = image.data.toString('base64');
+    console.log("Image converted to base64, length:", imageData.length);
 
     // Analyze image with Anthropic
     const response = await anthropic.messages.create({
@@ -84,8 +98,8 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
             type: "image",
             source: {
               type: "base64",
-              media_type: image.mimetype,
-              data: image.data.toString("base64")
+              media_type: mediaType,
+              data: imageData
             }
           }
         ]

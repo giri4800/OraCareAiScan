@@ -29,47 +29,68 @@ export default function ImageUpload() {
     }
     
     setIsUploading(true);
-    setProgress(0);
+    setProgress(25);
 
     try {
-      console.log("Starting image analysis...");
+      // Create form data
       const formData = new FormData();
       formData.append("image", selectedImage);
 
+      // Start upload
+      setProgress(50);
+      console.log("Starting image analysis...");
+      
       const response = await fetch("/api/analysis", {
         method: "POST",
         body: formData,
       });
 
-      console.log("Response status:", response.status);
-      const responseText = await response.text();
-      console.log("Response text:", responseText);
+      setProgress(75);
+      console.log("Response received:", response.status);
 
       if (!response.ok) {
-        throw new Error(responseText || "Analysis failed");
+        const errorText = await response.text();
+        console.error("Server error:", errorText);
+        throw new Error(errorText || `Server error: ${response.status}`);
       }
 
-      const result = JSON.parse(responseText);
+      const result = await response.json();
       console.log("Analysis result:", result);
       
+      setProgress(100);
       toast({
         title: "Analysis Complete",
-        description: `Result: ${result.result} (${(parseFloat(result.confidence) * 100).toFixed(1)}% confidence)`,
+        description: (
+          <div className="space-y-2">
+            <p className="font-medium">
+              Result: <span className={result.result === "Normal" ? "text-green-600" : "text-red-600"}>
+                {result.result}
+              </span>
+            </p>
+            <p>Confidence: {(result.confidence * 100).toFixed(1)}%</p>
+            {result.explanation && (
+              <p className="text-sm text-gray-600">{result.explanation}</p>
+            )}
+          </div>
+        ),
+        duration: 5000,
       });
 
-      // Reset the form
+      // Reset form only on success
       setSelectedImage(null);
       setPreviewUrl(null);
     } catch (error) {
       console.error("Analysis error:", error);
       toast({
         variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to analyze image",
+        title: "Analysis Failed",
+        description: error instanceof Error 
+          ? error.message 
+          : "Failed to analyze image. Please try again.",
+        duration: 5000,
       });
     } finally {
       setIsUploading(false);
-      setProgress(100);
     }
   };
 
