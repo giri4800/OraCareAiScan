@@ -3,6 +3,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Camera, Upload, Search, Loader2 } from "lucide-react";
+import { auth } from "@/lib/firebase";
 
 export default function ImageUpload() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -27,13 +28,22 @@ export default function ImageUpload() {
       const formData = new FormData();
       formData.append("image", selectedImage);
 
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        throw new Error("Please sign in to analyze images");
+      }
+
       const response = await fetch("/api/analysis", {
         method: "POST",
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error("Analysis failed");
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Analysis failed");
       }
 
       const result = await response.json();
