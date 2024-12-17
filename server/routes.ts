@@ -18,6 +18,7 @@ if (!process.env.ANTHROPIC_API_KEY) {
   throw new Error("ANTHROPIC_API_KEY environment variable is required");
 }
 
+// the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
@@ -44,47 +45,75 @@ router.post("/api/analysis", verifyAuth, async (req: AuthRequest, res: Response)
     }
 
     const image = req.files.image as UploadedFile;
+    
+    // Validate file type
+    if (!image.mimetype.startsWith('image/')) {
+      throw new Error("Invalid file type. Please upload an image.");
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024;
+    if (image.size > maxSize) {
+      throw new Error("File too large. Maximum size is 10MB.");
+    }
+
     if (!req.user?.uid) throw new Error("User not authenticated");
 
     // Analyze image with Anthropic
     const response = await anthropic.messages.create({
-        model: "claude-3-opus-20240229",
-        max_tokens: 1024,
-        messages: [{
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Please analyze this oral cavity image for signs of cancer. Provide a clear assessment of whether there are any concerning signs that would warrant medical attention. Format your response as: RESULT: (Normal/Concerning) followed by a brief explanation."
-            },
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/jpeg",
-                data: image.data.toString("base64")
-              }
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 1024,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Please analyze this oral cavity image for signs of cancer. Provide a detailed assessment in JSON format with the following structure: { result: 'Normal' or 'Concerning', confidence: number between 0-1, explanation: string with detailed findings }. Focus on identifying any suspicious lesions, abnormal growths, or discoloration that might indicate early signs of oral cancer."
+          },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: image.mimetype,
+              data: image.data.toString("base64")
             }
-          ]
-        }]
-      });
+          }
+        ]
+      }]
+    });
 
-      const analysisText = response.content[0].type === 'text' ? response.content[0].text : 'Analysis unavailable';
-      const result = analysisText.includes('RESULT: Concerning') ? 'Concerning' : 'Normal';
-      
-      const [analysis] = await db
-        .insert(analyses)
-        .values({
-          userId: req.user.uid,
-          imageUrl: "placeholder_url", // TODO: Implement Firebase Storage
-          result: result,
-          confidence: "0.95", // Store as string since it's a decimal in the schema
-          timestamp: new Date(),
-        })
-        .returning();
+    const analysisText = response.content[0].type === 'text' ? response.content[0].text : 'Analysis unavailable';
+    let analysisResult;
+    try {
+      analysisResult = JSON.parse(analysisText);
+    } catch {
+      // If JSON parsing fails, use a default format
+      analysisResult = {
+        result: analysisText.includes('Concerning') ? 'Concerning' : 'Normal',
+        confidence: 0.95,
+        explanation: analysisText
+      };
+    }
 
-    res.json(analysis);
+    // Save analysis result to database
+    const [analysis] = await db
+      .insert(analyses)
+      .values({
+        userId: req.user.uid,
+        imageUrl: "placeholder_url", // TODO: Implement Firebase Storage
+        result: analysisResult.result,
+        confidence: analysisResult.confidence.toString(),
+        timestamp: new Date(),
+      })
+      .returning();
+
+    // Return analysis with the full result including explanation
+    res.json({
+      ...analysis,
+      explanation: analysisResult.explanation
+    });
   } catch (error) {
+    console.error('Analysis error:', error);
     const message = error instanceof Error ? error.message : "Internal server error";
     res.status(500).json({ error: message });
   }
@@ -102,6 +131,7 @@ router.get("/api/analysis/history", verifyAuth, async (req: AuthRequest, res: Re
     
     res.json(history);
   } catch (error) {
+    console.error('History fetch error:', error);
     const message = error instanceof Error ? error.message : "Internal server error";
     res.status(500).json({ error: message });
   }
@@ -121,6 +151,7 @@ router.delete("/api/analysis/:id", verifyAuth, async (req: AuthRequest, res: Res
     
     res.status(204).send();
   } catch (error) {
+    console.error('Delete error:', error);
     const message = error instanceof Error ? error.message : "Internal server error";
     res.status(500).json({ error: message });
   }
