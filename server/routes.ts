@@ -19,58 +19,44 @@ const anthropic = new Anthropic({
 // Upload and analyze image
 router.post("/api/analysis", async (req: Request, res: Response) => {
   try {
-    console.log("Received analysis request");
-    
-    if (!req.files || !req.files.image) {
-      console.log("No image found in request");
-      return res.status(400).json({ error: "No image provided" });
+    if (!req.files || Object.keys(req.files).length === 0) {
+      console.log("No files were uploaded");
+      return res.status(400).json({ error: "No files were uploaded" });
     }
 
     const image = req.files.image as UploadedFile;
-    console.log("Processing image:", { 
-      name: image.name,
-      size: image.size,
-      mimetype: image.mimetype 
-    });
-
+    
     // Validate file type
     if (!image.mimetype.startsWith('image/')) {
-      return res.status(400).json({ 
-        error: "Invalid file type. Please upload an image." 
-      });
+      console.log("Invalid file type:", image.mimetype);
+      return res.status(400).json({ error: "Invalid file type. Please upload an image." });
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024;
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
     if (image.size > maxSize) {
-      return res.status(400).json({ 
-        error: "File too large. Maximum size is 10MB." 
-      });
+      console.log("File too large:", image.size);
+      return res.status(400).json({ error: "File too large. Maximum size is 5MB." });
     }
+
+    console.log("Processing image:", {
+      name: image.name,
+      type: image.mimetype,
+      size: image.size
+    });
 
     // Convert image to base64
-    const base64Image = Buffer.from(image.data).toString('base64');
-    console.log("Image converted to base64, length:", base64Image.length);
-      
-    if (!base64Image || base64Image.length === 0) {
-      console.error("Base64 conversion failed - empty result");
+    const base64Image = image.data.toString('base64');
+    
+    if (!base64Image) {
+      console.log("Failed to convert image to base64");
       return res.status(400).json({ error: "Failed to process image" });
     }
-      
-    // Validate mime type more strictly
-    const validMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!validMimeTypes.includes(image.mimetype)) {
-      console.error("Invalid mime type:", image.mimetype);
-      return res.status(400).json({ 
-        error: "Invalid image format. Please upload a JPEG, PNG, GIF, or WebP image." 
-      });
-    }
 
-    // Analyze image with Anthropic
-    console.log("Sending request to Anthropic API...");
-    console.log("Preparing Anthropic API request with image type:", image.mimetype);
-    
-    const message = {
+    console.log("Image converted to base64 successfully");
+
+    // Send to Anthropic API
+    const response = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1024,
       messages: [{
@@ -90,25 +76,25 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
           }
         ]
       }]
-    };
-    
-    console.log("Sending request to Anthropic API with content types:", 
-      message.messages[0].content.map(c => c.type));
-    
-    const response = await anthropic.messages.create(message);
-
-    console.log("Received response from Anthropic API");
+    });
 
     if (!response.content || response.content.length === 0) {
+      console.log("Empty response from Anthropic API");
       throw new Error("Empty response from Anthropic API");
     }
 
-    const analysisText = response.content[0].type === 'text' ? response.content[0].text : 'Analysis unavailable';
+    const analysisText = response.content[0].type === 'text' ? response.content[0].text : null;
+    if (!analysisText) {
+      throw new Error("Invalid response format from API");
+    }
+
+    console.log("Raw analysis response:", analysisText);
+
     let analysisResult;
     try {
       analysisResult = JSON.parse(analysisText);
-    } catch {
-      // If JSON parsing fails, use a default format
+    } catch (error) {
+      console.log("Failed to parse API response:", error);
       analysisResult = {
         result: analysisText.includes('Concerning') ? 'Concerning' : 'Normal',
         confidence: 0.95,
@@ -116,45 +102,32 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
       };
     }
 
-    res.json({
+    const result = {
       id: 'temp-' + Date.now(),
       result: analysisResult.result,
       confidence: analysisResult.confidence,
       explanation: analysisResult.explanation,
       imageUrl: `data:${image.mimetype};base64,${base64Image}`,
       timestamp: new Date()
-    });
+    };
+
+    console.log("Sending analysis result");
+    res.json(result);
 
   } catch (error) {
     console.error('Analysis error:', error);
     
-    // Check if it's an Anthropic API error
-    if ((error as any)?.status === 400) {
+    if (error instanceof Error) {
       return res.status(400).json({ 
-        error: "Invalid image format or content. Please try a different image."
+        error: error.message || "Failed to process image"
       });
     }
     
-    const message = error instanceof Error ? error.message : "Internal server error";
-    res.status(500).json({ error: message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
 export function registerRoutes(app: Express): Server {
-  // Apply the router middleware
   app.use(router);
-  
-  // Create and return the HTTP server
-  const server = createServer(app);
-  
-  // Handle WebSocket upgrade
-  server.on('upgrade', (request, socket, head) => {
-    const protocol = request.headers['sec-websocket-protocol'];
-    if (protocol === 'vite-hmr') {
-      return;
-    }
-    // Add any additional WebSocket handling here if needed
-  });
-  
-  return server;
+  return createServer(app);
 }

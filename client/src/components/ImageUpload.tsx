@@ -12,12 +12,6 @@ export default function ImageUpload() {
   const { toast } = useToast();
 
   const handleImageSelect = (file: File) => {
-    console.log("Selected file:", {
-      name: file.name,
-      type: file.type,
-      size: file.size
-    });
-    
     // Validate file type
     const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!validTypes.includes(file.type)) {
@@ -29,15 +23,21 @@ export default function ImageUpload() {
       return;
     }
 
-    // Validate file size (10MB)
-    if (file.size > 10 * 1024 * 1024) {
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
       toast({
         variant: "destructive",
-        title: "Error",
-        description: "Image size should be less than 10MB",
+        title: "File Too Large",
+        description: "Image size should be less than 5MB",
       });
       return;
     }
+
+    console.log("Selected file:", {
+      name: file.name,
+      type: file.type,
+      size: file.size
+    });
 
     setSelectedImage(file);
     const imageUrl = URL.createObjectURL(file);
@@ -48,7 +48,7 @@ export default function ImageUpload() {
     if (!selectedImage) {
       toast({
         variant: "destructive",
-        title: "Error",
+        title: "No Image Selected",
         description: "Please select an image first",
       });
       return;
@@ -58,62 +58,55 @@ export default function ImageUpload() {
     setProgress(25);
 
     try {
-      // Create form data
       const formData = new FormData();
       formData.append("image", selectedImage);
 
-      // Start upload
-      setProgress(50);
       console.log("Starting image analysis...", {
         name: selectedImage.name,
         type: selectedImage.type,
         size: selectedImage.size
       });
 
+      setProgress(50);
       const response = await fetch("/api/analysis", {
         method: "POST",
         body: formData
       });
 
-      setProgress(75);
       console.log("Response received:", response.status);
 
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        
-        if (!response.ok) {
-          throw new Error(data.error || `Server error: ${response.status}`);
-        }
-
-        console.log("Analysis result:", data);
-        setProgress(100);
-        
-        toast({
-          title: "Analysis Complete",
-          description: (
-            <div className="space-y-2">
-              <p className="font-medium">
-                Result: <span className={data.result === "Normal" ? "text-green-600" : "text-red-600"}>
-                  {data.result}
-                </span>
-              </p>
-              <p>Confidence: {(data.confidence * 100).toFixed(1)}%</p>
-              {data.explanation && (
-                <p className="text-sm text-gray-600">{data.explanation}</p>
-              )}
-            </div>
-          ),
-          duration: 5000,
-        });
-
-        // Reset form only on success
-        setSelectedImage(null);
-        setPreviewUrl(null);
-      } else {
-        const text = await response.text();
-        throw new Error(text || `Server error: ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
+
+      setProgress(75);
+      const result = await response.json();
+      console.log("Analysis result:", result);
+      
+      setProgress(100);
+      
+      toast({
+        title: "Analysis Complete",
+        description: (
+          <div className="space-y-2">
+            <p className="font-medium">
+              Result: <span className={result.result === "Normal" ? "text-green-600" : "text-red-600"}>
+                {result.result}
+              </span>
+            </p>
+            <p>Confidence: {(result.confidence * 100).toFixed(1)}%</p>
+            {result.explanation && (
+              <p className="text-sm text-gray-600">{result.explanation}</p>
+            )}
+          </div>
+        ),
+        duration: 5000,
+      });
+
+      // Reset form only on success
+      setSelectedImage(null);
+      setPreviewUrl(null);
     } catch (error) {
       console.error("Analysis error:", error);
       toast({
