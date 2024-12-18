@@ -21,15 +21,39 @@ export default function ImageUpload() {
 
   const startCamera = async () => {
     try {
-      // Basic camera request
+      console.log("Starting camera...");
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true
+        video: {
+          width: 1280,
+          height: 720,
+        }
       });
 
+      console.log("Got camera stream:", stream.getVideoTracks()[0].label);
+
       if (videoRef.current) {
+        console.log("Setting up video element");
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        
+        // Wait for video to start playing
+        await new Promise((resolve) => {
+          if (!videoRef.current) return;
+          videoRef.current.onloadedmetadata = () => {
+            console.log("Video metadata loaded");
+            if (videoRef.current) {
+              videoRef.current.play()
+                .then(() => {
+                  console.log("Video playing");
+                  resolve(true);
+                })
+                .catch(err => console.error("Play error:", err));
+            }
+          };
+        });
+
         setIsCameraActive(true);
+      } else {
+        console.error("No video element available");
       }
     } catch (error) {
       console.error('Camera error:', error);
@@ -187,7 +211,8 @@ export default function ImageUpload() {
               autoPlay
               playsInline
               muted
-              className="absolute inset-0 w-full h-full object-contain"
+              style={{ width: '100%', height: '100%' }}
+              className="absolute inset-0 object-cover bg-black"
             />
           </div>
 
