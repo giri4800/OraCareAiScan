@@ -10,27 +10,28 @@ export default function ImageUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
 
-  // Cleanup function
+  // Handle cleanup when component unmounts or camera is stopped
   const stopCamera = () => {
-    console.log("Stopping camera...");
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => {
-        console.log("Stopping track:", track.label);
-        track.stop();
-      });
-      videoRef.current.srcObject = null;
+    try {
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+    } catch (error) {
+      console.error('Error stopping camera:', error);
     }
     setIsCameraActive(false);
+    setIsInitializing(false);
   };
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log("Component unmounting, cleaning up camera");
       stopCamera();
     };
   }, []);
@@ -64,57 +65,71 @@ export default function ImageUpload() {
   };
 
   const startCamera = async () => {
-    console.log("Starting camera initialization...");
-    
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast({
+        variant: "destructive",
+        title: "Camera Error",
+        description: "Camera API is not supported in your browser"
+      });
+      return;
+    }
+
+    if (isInitializing) return;
+    setIsInitializing(true);
+
     try {
-      // First, stop any existing camera stream
+      // Stop any existing streams
       stopCamera();
 
-      console.log("Checking video element...");
-      const video = videoRef.current;
-      if (!video) {
-        throw new Error("Video element not available");
-      }
-
-      console.log("Requesting camera access...");
+      // Request camera access with basic constraints
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true
+        video: true,
+        audio: false
       });
 
-      console.log("Camera access granted, configuring video element...");
-      video.srcObject = stream;
-      video.setAttribute('playsinline', 'true');
-      video.muted = true;
+      // Verify video element exists
+      if (!videoRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        throw new Error("Video element not found");
+      }
 
-      console.log("Starting video playback...");
-      await video.play();
-      
-      console.log("Camera initialization complete");
+      // Configure video element
+      videoRef.current.srcObject = stream;
+      videoRef.current.setAttribute('playsinline', 'true');
+      videoRef.current.muted = true;
+
+      // Start playback
+      await videoRef.current.play();
       setIsCameraActive(true);
 
     } catch (error) {
-      console.error("Camera initialization error:", error);
-      stopCamera();
-      
       let message = "Failed to access camera. ";
+      
       if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          message = "Camera access denied. Please grant camera permissions.";
-        } else if (error.name === 'NotFoundError') {
-          message = "No camera found. Please check your camera connection.";
-        } else if (error.name === 'NotReadableError') {
-          message = "Camera is in use by another application.";
-        } else {
-          message = error.message || "Failed to initialize camera";
+        switch (error.name) {
+          case 'NotAllowedError':
+            message = "Please grant camera permissions in your browser settings.";
+            break;
+          case 'NotFoundError':
+            message = "No camera detected. Please connect a camera and try again.";
+            break;
+          case 'NotReadableError':
+            message = "Camera is in use by another application. Please close other camera apps.";
+            break;
+          default:
+            message = error.message || "Camera initialization failed. Please try again.";
         }
       }
 
       toast({
         variant: "destructive",
         title: "Camera Error",
-        description: message,
-        duration: 5000
+        description: message
       });
+      
+      stopCamera();
+    } finally {
+      setIsInitializing(false);
     }
   };
 
