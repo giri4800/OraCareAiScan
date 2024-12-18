@@ -75,6 +75,11 @@ export default function ImageUpload() {
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(e => {
+            console.error("Error playing video:", e);
+          });
+        };
         streamRef.current = stream;
         setIsCameraActive(true);
       }
@@ -248,17 +253,24 @@ export default function ImageUpload() {
               ref={videoRef}
               autoPlay
               playsInline
+              muted
               className="w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }} // Mirror the camera view for selfie mode
             />
           </div>
-          <Button
-            size="lg"
-            className="w-full"
-            onClick={captureImage}
-          >
-            <Camera className="mr-2 h-5 w-5" />
-            Capture Image
-          </Button>
+          <div className="space-y-2">
+            <Button
+              size="lg"
+              className="w-full"
+              onClick={captureImage}
+            >
+              <Camera className="mr-2 h-5 w-5" />
+              Capture Image
+            </Button>
+            <p className="text-sm text-center text-muted-foreground">
+              Make sure you're in a well-lit area and the camera is focused
+            </p>
+          </div>
         </div>
       )}
 
