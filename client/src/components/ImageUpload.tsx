@@ -74,11 +74,19 @@ export default function ImageUpload() {
       // Try to get the list of available cameras first
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
-      console.log("Available cameras:", videoDevices);
+      console.log("Available cameras:", videoDevices.map(device => ({
+        deviceId: device.deviceId,
+        label: device.label || 'Unnamed Camera',
+        groupId: device.groupId
+      })));
 
       if (videoDevices.length === 0) {
         throw new Error("No camera devices found");
       }
+
+      // Request camera permissions first
+      await navigator.mediaDevices.getUserMedia({ video: true });
+      console.log("Camera permission granted");
 
       // Stop any existing streams
       if (streamRef.current) {
@@ -93,21 +101,40 @@ export default function ImageUpload() {
         videoRef.current.srcObject = null;
       }
 
-      // Try environment camera first, fall back to any available camera
+      // Try to initialize camera with specific constraints
       let stream: MediaStream;
       try {
+        // First try with the first available camera device
+        const primaryDevice = videoDevices[0];
+        console.log("Attempting to initialize primary camera:", primaryDevice.label || 'Unnamed Camera');
+        
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: { ideal: 'environment' },
+            deviceId: primaryDevice.deviceId ? { exact: primaryDevice.deviceId } : undefined,
             width: { ideal: 1280 },
-            height: { ideal: 720 }
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
           }
         });
-      } catch (envError) {
-        console.log("Falling back to default camera:", envError);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true
-        });
+        
+        console.log("Successfully initialized primary camera");
+      } catch (primaryError) {
+        console.error("Error with primary camera:", primaryError);
+        
+        // Fall back to basic video capture
+        console.log("Attempting fallback to basic video capture...");
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 640 },
+              height: { ideal: 480 }
+            }
+          });
+          console.log("Successfully initialized camera with basic settings");
+        } catch (fallbackError) {
+          console.error("Fallback camera initialization failed:", fallbackError);
+          throw new Error("Failed to initialize camera with any settings");
+        }
       }
 
       // Ensure video tracks are active
@@ -374,11 +401,13 @@ export default function ImageUpload() {
               width={1280}
               height={720}
             />
-            {!isCameraActive && (
-              <div className="absolute inset-0 flex items-center justify-center text-white">
-                Initializing camera...
+            <div className={`absolute inset-0 flex flex-col items-center justify-center text-white transition-opacity duration-300 ${isCameraActive ? 'opacity-0' : 'opacity-100'}`}>
+              <div className="bg-black/50 p-4 rounded-lg text-center">
+                <div className="animate-spin h-8 w-8 border-4 border-white border-t-transparent rounded-full mx-auto mb-2"></div>
+                <p>Initializing camera...</p>
+                <p className="text-sm opacity-75 mt-1">Please ensure your external camera is properly connected</p>
               </div>
-            )}
+            </div>
           </div>
           <div className="space-y-2">
             <Button
