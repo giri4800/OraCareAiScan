@@ -101,22 +101,35 @@ export default function ImageUpload() {
         throw new Error("Camera API is not supported in this browser");
       }
 
-      // Request basic camera access first
+      // Clean up any existing streams
+      if (streamRef.current) {
+        console.log('Cleaning up existing stream...');
+        streamRef.current.getTracks().forEach(track => {
+          console.log(`Stopping track: ${track.kind}`);
+          track.stop();
+        });
+        streamRef.current = null;
+      }
+
+      // Start with basic video constraints
+      console.log('Requesting camera access...');
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user'
+        },
         audio: false
       });
 
-      console.log('Basic camera access granted, configuring stream...');
-
-      // Now configure the video track with specific constraints
+      console.log('Camera access granted');
+      
+      // Get video track for logging
       const videoTrack = stream.getVideoTracks()[0];
-      await videoTrack.applyConstraints({
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      });
+      const settings = videoTrack.getSettings();
+      console.log('Camera settings:', settings);
 
-      // Store stream reference after successful configuration
+      // Store stream reference
       streamRef.current = stream;
 
       // Set up video element
@@ -124,24 +137,42 @@ export default function ImageUpload() {
         throw new Error("Video element not initialized");
       }
 
-      console.log('Setting up video element...');
+      // Configure video element with cross-browser support
       videoRef.current.srcObject = stream;
+      videoRef.current.muted = true;
+      videoRef.current.playsInline = true;
       
-      // Wait for video to be ready
+      // Wait for video to be ready with timeout
       await new Promise<void>((resolve, reject) => {
         if (!videoRef.current) {
           reject(new Error("Video element lost"));
           return;
         }
+
+        const timeoutId = setTimeout(() => {
+          reject(new Error("Video stream timeout - please try again"));
+        }, 10000);
+
+        const handleError = (e: Event) => {
+          clearTimeout(timeoutId);
+          reject(new Error(`Video error: ${e.type}`));
+        };
+
+        videoRef.current.addEventListener('error', handleError);
         
-        videoRef.current.onloadedmetadata = () => {
-          if (!videoRef.current) return;
-          videoRef.current.play()
-            .then(() => {
-              console.log('Video playback started');
-              resolve();
-            })
-            .catch(reject);
+        videoRef.current.onloadedmetadata = async () => {
+          try {
+            clearTimeout(timeoutId);
+            videoRef.current?.removeEventListener('error', handleError);
+            
+            if (!videoRef.current) return;
+            
+            await videoRef.current.play();
+            console.log('Video playback started');
+            resolve();
+          } catch (error) {
+            reject(new Error("Failed to start video playback"));
+          }
         };
       });
 
@@ -149,20 +180,23 @@ export default function ImageUpload() {
       setShowCamera(true);
 
     } catch (error) {
-      console.error('Camera access error:', error);
+      console.error('Camera setup error:', error);
       
-      // Cleanup on error
+      // Clean up on error
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
       }
       
+      // Show user-friendly error message
       toast({
         variant: "destructive",
         title: "Camera Error",
         description: error instanceof Error 
-          ? `Failed to access camera: ${error.message}`
-          : "Failed to access camera. Please check permissions.",
+          ? error.message.includes('Permission denied')
+            ? "Camera access denied. Please check your browser permissions."
+            : `Failed to access camera: ${error.message}`
+          : "Failed to access camera. Please try again.",
         duration: 5000,
       });
     }
