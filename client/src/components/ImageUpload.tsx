@@ -63,26 +63,35 @@ export default function ImageUpload() {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          aspectRatio: { ideal: 16/9 },
-          frameRate: { max: 30 }
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         } 
       });
       
-      console.log("Available cameras:", await navigator.mediaDevices.enumerateDevices());
-      console.log("Attempting to access camera with constraints:", stream.getVideoTracks()[0].getConstraints());
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(e => {
-            console.error("Error playing video:", e);
-          });
-        };
-        streamRef.current = stream;
-        setIsCameraActive(true);
+      if (!videoRef.current) {
+        throw new Error("Video element not found");
       }
+
+      console.log("Available cameras:", await navigator.mediaDevices.enumerateDevices());
+      console.log("Camera stream obtained with constraints:", stream.getVideoTracks()[0].getConstraints());
+
+      videoRef.current.srcObject = stream;
+      videoRef.current.onloadedmetadata = () => {
+        if (!videoRef.current) return;
+        videoRef.current.play().catch(e => {
+          console.error("Error playing video:", e);
+          toast({
+            variant: "destructive",
+            title: "Camera Error",
+            description: "Failed to start video preview. Please try again.",
+          });
+        });
+      };
+      
+      streamRef.current = stream;
+      setIsCameraActive(true);
+      
+      console.log("Camera initialized successfully");
     } catch (error) {
       console.error('Camera access error:', error);
       toast({
@@ -98,27 +107,47 @@ export default function ImageUpload() {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
       setIsCameraActive(false);
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      console.log("Camera stopped");
     }
   };
 
   const captureImage = () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current) {
+      console.error("Video element not found");
+      return;
+    }
 
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    
-    if (!ctx) return;
-    
-    ctx.drawImage(videoRef.current, 0, 0);
-    canvas.toBlob((blob) => {
-      if (!blob) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext('2d');
       
-      const file = new File([blob], "captured-image.jpg", { type: "image/jpeg" });
-      handleImageSelect(file);
-      stopCamera();
-    }, 'image/jpeg', 0.8);
+      if (!ctx) {
+        throw new Error("Failed to get canvas context");
+      }
+      
+      ctx.drawImage(videoRef.current, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          throw new Error("Failed to create image blob");
+        }
+        
+        const file = new File([blob], "captured-image.jpg", { type: "image/jpeg" });
+        handleImageSelect(file);
+        stopCamera();
+      }, 'image/jpeg', 0.8);
+    } catch (error) {
+      console.error("Image capture error:", error);
+      toast({
+        variant: "destructive",
+        title: "Capture Error",
+        description: "Failed to capture image. Please try again.",
+      });
+    }
   };
 
   const handleAnalyze = async () => {
@@ -255,7 +284,6 @@ export default function ImageUpload() {
               playsInline
               muted
               className="w-full h-full object-cover"
-              style={{ transform: 'scaleX(-1)' }} // Mirror the camera view for selfie mode
             />
           </div>
           <div className="space-y-2">
