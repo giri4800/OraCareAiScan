@@ -60,11 +60,11 @@ export default function ImageUpload() {
   const startCamera = async () => {
     try {
       console.log("Starting camera initialization process...");
-      
+
       // Add initial delay to allow USB device detection
       console.log("Waiting for device initialization...");
       await new Promise(resolve => setTimeout(resolve, 1500));
-      
+
       // Check if mediaDevices is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Camera API is not supported in this browser");
@@ -85,6 +85,34 @@ export default function ImageUpload() {
         streamRef.current = null;
       }
 
+      // Request initial camera permissions
+      try {
+        console.log("Requesting initial camera permissions...");
+        const initialStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+
+        // Clean up initial stream after permission check
+        initialStream.getTracks().forEach(track => track.stop());
+        console.log("Camera permission granted");
+      } catch (permissionError) {
+        console.error("Permission error:", permissionError);
+        const error = permissionError as Error;
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+          throw new Error("Camera access denied. Please grant camera permissions in your browser settings.");
+        } else if (error.name === 'NotFoundError') {
+          throw new Error("No camera devices found. Please ensure your camera is properly connected.");
+        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+          throw new Error("Camera is in use by another application or not accessible. Please close other applications using the camera.");
+        } else {
+          throw new Error(`Camera permission error: ${error.message || 'Failed to initialize camera'}`);
+        }
+      }
+
+
       // Function to wait for device to be ready with increasing delays
       const waitForDevice = async (attempt: number): Promise<void> => {
         const delay = Math.min(1000 * Math.pow(1.5, attempt), 5000); // Exponential backoff up to 5s
@@ -97,12 +125,11 @@ export default function ImageUpload() {
         for (let i = 0; i < retries; i++) {
           try {
             await waitForDevice(i);
-            
+
             console.log(`Attempt ${i + 1} to enumerate devices...`);
             const devices = await navigator.mediaDevices.enumerateDevices();
             const videoDevices = devices.filter(device => device.kind === 'videoinput');
-            
-            // Log detailed device information
+
             console.log("Found video devices:", videoDevices.map(device => ({
               deviceId: device.deviceId,
               label: device.label || 'Unnamed Camera',
@@ -134,38 +161,6 @@ export default function ImageUpload() {
         throw new Error("Failed to detect any cameras after multiple attempts");
       };
 
-      // Check if mediaDevices is supported
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Camera API is not supported in this browser");
-      }
-
-      // Request initial camera permissions
-      try {
-        console.log("Requesting initial camera permissions...");
-        const initialStream = await navigator.mediaDevices.getUserMedia({ 
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          } 
-        });
-        
-        // Clean up initial stream after permission check
-        initialStream.getTracks().forEach(track => track.stop());
-        console.log("Camera permission granted");
-      } catch (permissionError) {
-        console.error("Permission error:", permissionError);
-        const error = permissionError as Error;
-        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-          throw new Error("Camera access denied. Please grant camera permissions in your browser settings.");
-        } else if (error.name === 'NotFoundError') {
-          throw new Error("No camera devices found. Please ensure your camera is properly connected.");
-        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-          throw new Error("Camera is in use by another application or not accessible. Please close other applications using the camera.");
-        } else {
-          throw new Error(`Camera permission error: ${error.message || 'Failed to initialize camera'}`);
-        }
-      }
-
       // Try to get the list of available cameras with retries
       let videoDevices: MediaDeviceInfo[] = [];
       try {
@@ -179,35 +174,15 @@ export default function ImageUpload() {
         throw new Error("No camera devices found. Please ensure your external camera is properly connected.");
       }
 
-      // Stop any existing streams
-      if (streamRef.current) {
-        console.log("Stopping existing stream...");
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-
-      // Clear existing video source
-      if (videoRef.current.srcObject) {
-        console.log("Clearing existing video source...");
-        const oldStream = videoRef.current.srcObject as MediaStream;
-        oldStream.getTracks().forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
-
       // Initialize camera stream with progressive fallbacks
       let stream: MediaStream | null = null;
       try {
-        // Request initial camera permissions
-        console.log("Requesting initial camera permissions...");
-        await navigator.mediaDevices.getUserMedia({ video: true });
-        console.log("Initial camera permission granted");
-
         console.log("Starting camera initialization sequence...");
-        
+
         // Try each video device in sequence with progressive constraints
         for (const device of videoDevices) {
           console.log(`Attempting to initialize camera: ${device.label || 'Unnamed Camera'}`);
-          
+
           const constraints = [
             // Attempt 1: Optimal quality
             {
@@ -215,7 +190,7 @@ export default function ImageUpload() {
               width: { min: 1280, ideal: 1920, max: 3840 },
               height: { min: 720, ideal: 1080, max: 2160 },
               frameRate: { min: 24, ideal: 30, max: 60 },
-              aspectRatio: { ideal: 16/9 }
+              aspectRatio: { ideal: 16 / 9 }
             },
             // Attempt 2: Balanced settings
             {
@@ -237,125 +212,75 @@ export default function ImageUpload() {
             }
           ];
 
-          for (const [index, constraint] of constraints.entries()) {
+          for (const constraint of constraints) {
             try {
-              console.log(`Attempting initialization with constraint set ${index + 1}:`, constraint);
+              console.log("Attempting initialization with constraint:", constraint);
               stream = await navigator.mediaDevices.getUserMedia({ video: constraint });
-            if (stream) {
+
+              if (stream) {
                 const track = stream.getVideoTracks()[0];
                 const settings = track.getSettings();
                 console.log("Successfully initialized camera with settings:", settings);
-                
+
                 // Log detailed capabilities
                 const capabilities = track.getCapabilities();
                 console.log("Camera capabilities:", capabilities);
-                
+
                 break;
               }
             } catch (error) {
-              console.warn(`Failed with constraint set ${index + 1} for ${device.label}:`, error);
-              
-              if (index === constraints.length - 1) {
-                console.error(`All constraint sets failed for device: ${device.label}`);
-                
-                if (device === videoDevices[videoDevices.length - 1]) {
-                  // Last device, last constraint - try one final time with no constraints
-                  try {
-                    console.log("Attempting final fallback with no constraints...");
-                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    if (stream) {
-                      console.log("Successfully initialized camera with default constraints");
-                      break;
-                    }
-                  } catch (fallbackError) {
-                    console.error("Final fallback attempt failed:", fallbackError);
-                    throw new Error("Failed to initialize camera with any settings");
-                  }
-                }
-              }
-              
-              // Add a small delay between attempts
-              await new Promise(resolve => setTimeout(resolve, 500));
+              console.warn("Failed with constraint:", error);
+              // Continue to next constraint set
             }
           }
-          
+
           if (stream) break; // Successfully initialized this device
         }
-        
+
         if (!stream) {
           throw new Error("Failed to initialize any camera device");
         }
-      } catch (streamError) {
-        console.error("All camera initialization attempts failed:", streamError);
-        throw new Error(
-          streamError instanceof Error 
-            ? `Failed to initialize camera: ${streamError.message}`
-            : "Failed to initialize camera stream"
-        );
-      }
 
-      // Ensure video tracks are active
-      const videoTrack = stream.getVideoTracks()[0];
-      if (!videoTrack || !videoTrack.enabled) {
-        throw new Error("No active video track found in stream");
-      }
+        // Set up video element
+        videoRef.current.srcObject = stream;
+        videoRef.current.autoplay = true;
+        videoRef.current.playsInline = true;
+        videoRef.current.muted = true;
 
-      console.log("Camera stream obtained:", {
-        constraints: videoTrack.getConstraints(),
-        settings: videoTrack.getSettings()
-      });
+        // Store stream reference
+        streamRef.current = stream;
 
-      // Set up video element
-      videoRef.current.autoplay = true;
-      videoRef.current.playsInline = true;
-      videoRef.current.muted = true;
-
-      // Assign stream to video element
-      videoRef.current.srcObject = stream;
-      
-      // Set up metadata and play handlers
-      const playVideo = async () => {
-        if (!videoRef.current) return;
-        
-        try {
-          await videoRef.current.play();
-          console.log("Video playing successfully:", {
-            readyState: videoRef.current.readyState,
-            paused: videoRef.current.paused,
-            videoWidth: videoRef.current.videoWidth,
-            videoHeight: videoRef.current.videoHeight
-          });
-          setIsCameraActive(true);
-        } catch (error) {
-          console.error("Error playing video:", error);
+        // Wait for video to start playing - improved error handling
+        await videoRef.current.play().catch(playError => {
+          console.error("Error playing video:", playError);
           toast({
             variant: "destructive",
             title: "Camera Error",
             description: "Failed to start video preview. Please try again.",
           });
-        }
-      };
+          throw playError; // Re-throw to be caught by outer catch block
+        });
+        setIsCameraActive(true);
 
-      videoRef.current.onloadedmetadata = playVideo;
-      
-      // Store stream reference
-      streamRef.current = stream;
+        console.log("Camera initialization complete");
+      } catch (error) {
+        console.error("Camera initialization error:", error);
+        throw error; // Re-throw error for handling in outer catch block
+      }
     } catch (error) {
       console.error('Camera access error:', error);
-      
+
       let errorMessage = "Failed to access camera. ";
-      
+
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
           errorMessage += "Please grant camera permissions in your browser settings.";
         } else if (error.name === 'NotFoundError') {
           errorMessage += "No camera device was found on your device.";
-        } else if (error.name === 'NotSupportedError') {
-          errorMessage += "Your browser doesn't support camera access.";
-        } else if (error.message === "Camera API is not supported in this browser") {
-          errorMessage = error.message;
+        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+          errorMessage += "Camera is in use by another application or not accessible.";
         } else {
-          errorMessage += "Please check your camera connection and try again.";
+          errorMessage += error.message;
         }
       }
 
@@ -372,12 +297,12 @@ export default function ImageUpload() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
-      setIsCameraActive(false);
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-      console.log("Camera stopped");
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+    console.log("Camera stopped");
   };
 
   const captureImage = () => {
@@ -391,17 +316,17 @@ export default function ImageUpload() {
       canvas.width = videoRef.current.videoWidth;
       canvas.height = videoRef.current.videoHeight;
       const ctx = canvas.getContext('2d');
-      
+
       if (!ctx) {
         throw new Error("Failed to get canvas context");
       }
-      
+
       ctx.drawImage(videoRef.current, 0, 0);
       canvas.toBlob((blob) => {
         if (!blob) {
           throw new Error("Failed to create image blob");
         }
-        
+
         const file = new File([blob], "captured-image.jpg", { type: "image/jpeg" });
         handleImageSelect(file);
         stopCamera();
@@ -425,7 +350,7 @@ export default function ImageUpload() {
       });
       return;
     }
-    
+
     setIsUploading(true);
     setProgress(25);
 
@@ -445,19 +370,15 @@ export default function ImageUpload() {
         body: formData
       });
 
-      console.log("Response received:", response.status);
-
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Server error: ${response.status}`);
+        throw new Error(`Server error: ${response.status}`);
       }
 
       setProgress(75);
       const result = await response.json();
-      console.log("Analysis result:", result);
-      
+
       setProgress(100);
-      
+
       toast({
         title: "Analysis Complete",
         description: (
@@ -476,7 +397,6 @@ export default function ImageUpload() {
         duration: 5000,
       });
 
-      // Reset form only on success
       setSelectedImage(null);
       setPreviewUrl(null);
     } catch (error) {
@@ -484,9 +404,7 @@ export default function ImageUpload() {
       toast({
         variant: "destructive",
         title: "Analysis Failed",
-        description: error instanceof Error 
-          ? error.message 
-          : "Failed to analyze image. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to analyze image",
         duration: 5000,
       });
     } finally {
@@ -550,15 +468,13 @@ export default function ImageUpload() {
               playsInline
               muted
               className="absolute inset-0 w-full h-full object-contain"
-              style={{ 
-                minWidth: '100%', 
+              style={{
+                minWidth: '100%',
                 minHeight: '100%',
                 backgroundColor: 'black'
               }}
-              width={1280}
-              height={720}
             />
-            <div className={`absolute inset-0 flex flex-col items-center justify-center text-white transition-opacity duration-300 ${isCameraActive ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`absolute inset-0 flex items-center justify-center text-white transition-opacity duration-300 ${isCameraActive ? 'opacity-0' : 'opacity-100'}`}>
               <div className="bg-black/50 p-4 rounded-lg text-center max-w-md">
                 <div className="animate-spin h-8 w-8 border-4 border-white border-t-transparent rounded-full mx-auto mb-2"></div>
                 <p className="text-lg font-semibold mb-2">Initializing camera...</p>
@@ -570,19 +486,11 @@ export default function ImageUpload() {
                     <li>Camera permissions are granted in browser</li>
                     <li>No other applications are using the camera</li>
                   </ul>
-                  <div className="text-xs opacity-75 mt-2 space-y-1">
-                    <p>Troubleshooting steps:</p>
-                    <ol className="list-decimal list-inside text-left">
-                      <li>Unplug and replug your USB camera</li>
-                      <li>Wait a few seconds for device detection</li>
-                      <li>Refresh the page and try again</li>
-                      <li>Check if camera works in other applications</li>
-                    </ol>
-                  </div>
                 </div>
               </div>
             </div>
           </div>
+
           <div className="space-y-2">
             <Button
               size="lg"
@@ -608,7 +516,7 @@ export default function ImageUpload() {
               className="object-contain w-full h-full"
             />
           </div>
-          
+
           <Button
             size="lg"
             className="w-full text-lg"
