@@ -10,32 +10,17 @@ export default function ImageUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isVideoReady, setIsVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
 
-  // Handle component mounting and cleanup
+  // Cleanup on unmount
   useEffect(() => {
-    console.log("Component mounted");
-    
-    // Cleanup function
     return () => {
-      console.log("Component unmounting, cleaning up camera");
       if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
-
-  // Handle video element initialization
-  useEffect(() => {
-    if (videoRef.current) {
-      console.log("Video element found, initializing properties");
-      videoRef.current.playsInline = true;
-      videoRef.current.muted = true;
-      setIsVideoReady(true);
-    }
   }, []);
 
   const handleImageSelect = (file: File) => {
@@ -68,87 +53,48 @@ export default function ImageUpload() {
 
   const startCamera = async () => {
     try {
-      // Check if video element is ready
-      if (!videoRef.current || !isVideoReady) {
-        throw new Error("Camera system not ready. Please wait a moment and try again.");
-      }
-
-      // List available devices first
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === 'videoinput');
-      console.log("Available video devices:", videoDevices.map(d => ({
-        label: d.label || 'Unnamed Device',
-        id: d.deviceId
-      })));
-
-      if (videoDevices.length === 0) {
-        throw new Error("No video devices found");
-      }
-
-      // Try to find the Fingers webcam
-      const fingersWebcam = videoDevices.find(d => 
-        d.label.toLowerCase().includes('fingers') || 
-        d.label.toLowerCase().includes('usb')
-      );
-
-      // Stop any existing streams
-      if (videoRef.current.srcObject) {
+      // Stop any existing stream
+      if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
         videoRef.current.srcObject = null;
       }
 
-      console.log("Requesting camera access...");
+      // Request camera access with basic constraints
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: fingersWebcam ? {
-          deviceId: { exact: fingersWebcam.deviceId },
+        video: {
           width: { ideal: 1280 },
           height: { ideal: 720 }
-        } : {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'environment'
         }
-      });
-
-      console.log("Camera stream obtained:", {
-        tracks: stream.getVideoTracks().map(t => ({
-          label: t.label,
-          enabled: t.enabled,
-          muted: t.muted
-        }))
       });
 
       if (!videoRef.current) {
         stream.getTracks().forEach(track => track.stop());
-        throw new Error("Video element lost during initialization");
+        throw new Error("Camera initialization failed");
       }
 
       videoRef.current.srcObject = stream;
-      
       try {
-        console.log("Starting video playback");
         await videoRef.current.play();
-        console.log("Video playback started successfully");
         setIsCameraActive(true);
-      } catch (playError) {
-        console.error("Play error details:", playError);
+      } catch (error) {
         stream.getTracks().forEach(track => track.stop());
-        throw playError;
+        throw error;
       }
+
     } catch (error) {
       console.error('Camera error:', error);
-      
       let message = "Failed to access camera. ";
+
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
-          message = "Camera access denied. Please grant camera permissions in your browser settings.";
+          message = "Camera access denied. Please grant camera permissions.";
         } else if (error.name === 'NotFoundError') {
-          message = "No camera detected. Please check your camera connection.";
+          message = "No camera found. Please check your camera connection.";
         } else if (error.name === 'NotReadableError') {
-          message = "Cannot access camera. Please ensure it's not in use by another application.";
+          message = "Camera is in use by another application.";
         } else {
-          message = error.message;
+          message = error.message || "Failed to initialize camera";
         }
       }
 
