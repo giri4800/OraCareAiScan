@@ -96,10 +96,28 @@ export default function ImageUpload() {
         throw new Error("Video element not found");
       }
 
-      console.log("Camera stream obtained with constraints:", stream.getVideoTracks()[0].getConstraints());
+      // Ensure video tracks are active
+      const videoTrack = stream.getVideoTracks()[0];
+      if (!videoTrack || !videoTrack.enabled) {
+        throw new Error("No active video track found in stream");
+      }
+
+      console.log("Camera stream obtained with constraints:", videoTrack.getConstraints());
+      console.log("Video track settings:", videoTrack.getSettings());
+
+      // Clear any existing srcObject
+      if (videoRef.current.srcObject) {
+        const oldStream = videoRef.current.srcObject as MediaStream;
+        oldStream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
 
       console.log("Setting video stream...");
       videoRef.current.srcObject = stream;
+      
+      // Force a reload of the video element
+      videoRef.current.load();
+      
       videoRef.current.onloadedmetadata = () => {
         console.log("Video metadata loaded, attempting to play...");
         if (!videoRef.current) {
@@ -107,18 +125,32 @@ export default function ImageUpload() {
           return;
         }
         
-        videoRef.current.play()
-          .then(() => {
-            console.log("Video playing successfully");
-          })
-          .catch(e => {
-            console.error("Error playing video:", e);
-            toast({
-              variant: "destructive",
-              title: "Camera Error",
-              description: "Failed to start video preview. Please try again.",
+        // Ensure video properties are set correctly
+        videoRef.current.autoplay = true;
+        videoRef.current.playsInline = true;
+        videoRef.current.muted = true;
+        
+        const playPromise = videoRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              console.log("Video playing successfully");
+              console.log("Video element state:", {
+                readyState: videoRef.current?.readyState,
+                paused: videoRef.current?.paused,
+                videoWidth: videoRef.current?.videoWidth,
+                videoHeight: videoRef.current?.videoHeight
+              });
+            })
+            .catch(e => {
+              console.error("Error playing video:", e);
+              toast({
+                variant: "destructive",
+                title: "Camera Error",
+                description: "Failed to start video preview. Please try again.",
+              });
             });
-          });
+        }
       };
 
       videoRef.current.onerror = (e) => {
@@ -338,8 +370,12 @@ export default function ImageUpload() {
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover"
-              style={{ maxWidth: '100%', maxHeight: '100%' }}
+              className="w-full h-full object-contain"
+              style={{ 
+                maxWidth: '100%', 
+                maxHeight: '100%',
+                backgroundColor: 'black' // Add background to make video more visible
+              }}
               width={1280}
               height={720}
             />
