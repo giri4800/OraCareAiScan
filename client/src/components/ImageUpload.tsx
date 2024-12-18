@@ -98,17 +98,31 @@ export default function ImageUpload() {
 
       console.log("Camera stream obtained with constraints:", stream.getVideoTracks()[0].getConstraints());
 
+      console.log("Setting video stream...");
       videoRef.current.srcObject = stream;
       videoRef.current.onloadedmetadata = () => {
-        if (!videoRef.current) return;
-        videoRef.current.play().catch(e => {
-          console.error("Error playing video:", e);
-          toast({
-            variant: "destructive",
-            title: "Camera Error",
-            description: "Failed to start video preview. Please try again.",
+        console.log("Video metadata loaded, attempting to play...");
+        if (!videoRef.current) {
+          console.error("Video element lost after metadata loaded");
+          return;
+        }
+        
+        videoRef.current.play()
+          .then(() => {
+            console.log("Video playing successfully");
+          })
+          .catch(e => {
+            console.error("Error playing video:", e);
+            toast({
+              variant: "destructive",
+              title: "Camera Error",
+              description: "Failed to start video preview. Please try again.",
+            });
           });
-        });
+      };
+
+      videoRef.current.onerror = (e) => {
+        console.error("Video element error:", e);
       };
       
       streamRef.current = stream;
@@ -326,6 +340,8 @@ export default function ImageUpload() {
               muted
               className="w-full h-full object-cover"
               style={{ maxWidth: '100%', maxHeight: '100%' }}
+              width={1280}
+              height={720}
             />
           </div>
           <div className="space-y-2">
