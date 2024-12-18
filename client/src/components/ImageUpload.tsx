@@ -61,9 +61,21 @@ export default function ImageUpload() {
     try {
       console.log("Starting camera initialization process...");
 
-      // Add initial delay to allow USB device detection
-      console.log("Waiting for device initialization...");
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Add longer initial delay for USB device detection
+      console.log("Waiting for USB device initialization...");
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Log available devices before initialization
+      try {
+        const initialDevices = await navigator.mediaDevices.enumerateDevices();
+        console.log("Initial devices:", initialDevices.map(device => ({
+          kind: device.kind,
+          label: device.label || 'Unnamed Device',
+          deviceId: device.deviceId
+        })));
+      } catch (enumError) {
+        console.error("Error enumerating initial devices:", enumError);
+      }
 
       // Check if mediaDevices is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -85,14 +97,23 @@ export default function ImageUpload() {
         streamRef.current = null;
       }
 
-      // Request initial camera permissions
+      // Request initial camera permissions with detailed error handling
       try {
         console.log("Requesting initial camera permissions...");
         const initialStream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1280 },
-            height: { ideal: 720 }
+            height: { ideal: 720 },
+            deviceId: { ideal: undefined } // Allow system to choose best device initially
           }
+        }).catch(error => {
+          console.error("Initial getUserMedia error details:", {
+            name: error.name,
+            message: error.message,
+            constraint: error.constraint,
+            stack: error.stack
+          });
+          throw error;
         });
 
         // Clean up initial stream after permission check
@@ -120,8 +141,8 @@ export default function ImageUpload() {
         await new Promise(resolve => setTimeout(resolve, delay));
       };
 
-      // Enhanced function to enumerate devices with retries and logging
-      const getVideoDevices = async (retries = 5): Promise<MediaDeviceInfo[]> => {
+      // Enhanced function to enumerate devices with retries, logging, and USB detection
+      const getVideoDevices = async (retries = 8): Promise<MediaDeviceInfo[]> => { // Increased retries for USB detection
         for (let i = 0; i < retries; i++) {
           try {
             await waitForDevice(i);
