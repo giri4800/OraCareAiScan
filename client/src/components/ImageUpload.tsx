@@ -10,9 +10,21 @@ export default function ImageUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isVideoElementReady, setIsVideoElementReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
+
+  // Initialize video element
+  useEffect(() => {
+    if (videoRef.current) {
+      console.log("Video element mounted:", {
+        id: videoRef.current.id,
+        readyState: videoRef.current.readyState
+      });
+      setIsVideoElementReady(true);
+    }
+  }, []);
 
   // Cleanup camera stream on unmount
   useEffect(() => {
@@ -60,6 +72,24 @@ export default function ImageUpload() {
   const startCamera = async () => {
     try {
       console.log("Starting camera initialization process...");
+
+      // Wait for video element to be ready
+      if (!isVideoElementReady) {
+        console.log("Waiting for video element to be ready...");
+        let retries = 0;
+        while (!isVideoElementReady && retries < 5) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          retries++;
+          if (videoRef.current) {
+            setIsVideoElementReady(true);
+            break;
+          }
+        }
+        
+        if (!isVideoElementReady) {
+          throw new Error("Video element failed to initialize. Please refresh the page and try again.");
+        }
+      }
 
       // Add longer initial delay for USB device detection
       console.log("Waiting for USB device initialization...");
