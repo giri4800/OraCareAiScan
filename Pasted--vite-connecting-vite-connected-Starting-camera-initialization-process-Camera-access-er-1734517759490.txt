@@ -1,0 +1,50 @@
+[vite] connecting...
+[vite] connected.
+Starting camera initialization process...
+Camera access error: 
+Error {}
+message: "Video element not found"
+stack: "Error: Video element not found↵ at startCamera (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/src/components/ImageUpload.tsx:75:15)↵ at HTMLUnknownElement.callCallback2 (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:3674:22)↵ at Object.invokeGuardedCallbackDev (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:3699:24)↵ at invokeGuardedCallback (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:3733:39)↵ at invokeGuardedCallbackAndCatchFirstError (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:3736:33)↵ at executeDispatch (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:7014:11)↵ at processDispatchQueueItemsInOrder (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:7034:15)↵ at processDispatchQueue (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:7043:13)↵ at dispatchEventsForPlugins (https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:7051:11)↵ at https://542788b3-7641-4b1f-a472-fb03727e4f28-00-vavrryyvfhzs.pike.replit.dev/@fs/home/runner/OralScanAI/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=13096ec4:7174:20"
+get stack: ƒ ()
+set stack: ƒ ()
+length: 1
+name: ""
+[[Prototype]]: ƒ ()
+[[Prototype]]: Object
+constructor: ƒ Error()
+message: "Video element not found"
+name: "Error"
+toString: ƒ toString()
+[[Prototype]]: Object
+constructor: ƒ Error()
+hasOwnProperty: ƒ hasOwnProperty()
+isPrototypeOf: ƒ isPrototypeOf()
+propertyIsEnumerable: ƒ propertyIsEnumerable()
+toLocaleString: ƒ toLocaleString()
+toString: ƒ toString()
+valueOf: ƒ valueOf()
+__defineGetter__: ƒ __defineGetter__()
+__defineSetter__: ƒ __defineSetter__()
+__lookupGetter__: ƒ __lookupGetter__()
+__lookupSetter__: ƒ __lookupSetter__()
+__proto__: Object
+get __proto__: ƒ get __proto__()
+set __proto__: ƒ set __proto__()
+length: 1
+name: "set __proto__"
+[[Prototype]]: ƒ ()
+apply: ƒ apply()
+arguments: "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them"
+get arguments: ƒ ()
+set arguments: ƒ ()
+bind: ƒ bind()
+call: ƒ call()
+caller: "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them"
+get caller: ƒ ()
+set caller: ƒ ()
+constructor: ƒ Function()
+length: 1
+name: ""
+toString: ƒ toString()
+Symbol(Symbol.hasInstance): undefined
+[[Prototype]]: Object

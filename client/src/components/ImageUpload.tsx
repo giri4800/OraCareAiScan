@@ -71,8 +71,42 @@ export default function ImageUpload() {
         throw new Error("Video element not found");
       }
 
+      // Function to wait for device to be ready
+      const waitForDevice = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+      // Function to enumerate devices with retries
+      const getVideoDevices = async (retries = 3): Promise<MediaDeviceInfo[]> => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            // Wait for USB device to initialize
+            await waitForDevice(1000);
+            
+            console.log(`Attempt ${i + 1} to enumerate devices...`);
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            
+            // Log detailed device information
+            console.log("Found video devices:", videoDevices.map(device => ({
+              deviceId: device.deviceId,
+              label: device.label || 'Unnamed Camera',
+              groupId: device.groupId
+            })));
+
+            if (videoDevices.length > 0) {
+              return videoDevices;
+            }
+          } catch (error) {
+            console.error(`Enumeration attempt ${i + 1} failed:`, error);
+          }
+          
+          // Wait before retry
+          await waitForDevice(1000);
+        }
+        throw new Error("Failed to detect any cameras after multiple attempts");
+      };
+
+      // Request initial camera permissions
       try {
-        // Request camera permissions first
         console.log("Requesting initial camera permissions...");
         await navigator.mediaDevices.getUserMedia({ video: true });
         console.log("Camera permission granted");
@@ -80,25 +114,18 @@ export default function ImageUpload() {
         console.error("Permission error:", permissionError);
         throw new Error(
           permissionError instanceof Error 
-            ? permissionError.message 
+            ? `Camera permission error: ${permissionError.message}`
             : "Failed to get camera permissions"
         );
       }
 
-      // Try to get the list of available cameras
+      // Try to get the list of available cameras with retries
       let videoDevices: MediaDeviceInfo[] = [];
       try {
-        console.log("Enumerating available cameras...");
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        videoDevices = devices.filter(device => device.kind === 'videoinput');
-        console.log("Available cameras:", videoDevices.map(device => ({
-          deviceId: device.deviceId,
-          label: device.label || 'Unnamed Camera',
-          groupId: device.groupId
-        })));
+        videoDevices = await getVideoDevices();
       } catch (enumError) {
-        console.error("Error enumerating devices:", enumError);
-        throw new Error("Failed to detect available cameras");
+        console.error("Final enumeration error:", enumError);
+        throw new Error("Failed to detect any cameras. Please check if your external camera is properly connected and recognized by your system.");
       }
 
       if (videoDevices.length === 0) {
@@ -123,51 +150,76 @@ export default function ImageUpload() {
       // Initialize camera stream with progressive fallbacks
       let stream: MediaStream;
       try {
+        // Clear any existing streams first
+        if (streamRef.current) {
+          console.log("Stopping existing stream...");
+          streamRef.current.getTracks().forEach(track => {
+            track.stop();
+            console.log(`Stopped track: ${track.kind}, ${track.label}`);
+          });
+          streamRef.current = null;
+        }
+
+        // Clear existing video source
+        if (videoRef.current.srcObject) {
+          console.log("Clearing existing video source...");
+          const oldStream = videoRef.current.srcObject as MediaStream;
+          oldStream.getTracks().forEach(track => track.stop());
+          videoRef.current.srcObject = null;
+        }
+
         console.log("Starting camera initialization sequence...");
-        const primaryDevice = videoDevices[0];
         
-        // Try first with exact deviceId and constraints
-        try {
-          console.log("Attempting to initialize camera with exact constraints:", {
-            deviceId: primaryDevice.deviceId,
-            label: primaryDevice.label || 'Unnamed Camera'
-          });
+        // Try each video device in sequence
+        for (const device of videoDevices) {
+          console.log(`Attempting to initialize camera: ${device.label || 'Unnamed Camera'}`);
           
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              deviceId: { exact: primaryDevice.deviceId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30 }
-            }
-          });
-          console.log("Successfully initialized camera with exact constraints");
-        } catch (exactError) {
-          console.warn("Failed with exact constraints:", exactError);
-          
-          // Try with ideal constraints
           try {
-            console.log("Attempting with ideal constraints...");
+            // First try with exact constraints
+            console.log("Attempting with exact constraints...");
             stream = await navigator.mediaDevices.getUserMedia({
               video: {
-                deviceId: { ideal: primaryDevice.deviceId },
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
+                deviceId: { exact: device.deviceId },
+                width: { min: 640, ideal: 1280, max: 1920 },
+                height: { min: 480, ideal: 720, max: 1080 },
+                frameRate: { min: 15, ideal: 30, max: 60 }
               }
             });
-            console.log("Successfully initialized camera with ideal constraints");
-          } catch (idealError) {
-            console.warn("Failed with ideal constraints:", idealError);
+            console.log("Successfully initialized camera with exact constraints");
+            break;
+          } catch (exactError) {
+            console.warn(`Failed with exact constraints for ${device.label}:`, exactError);
             
-            // Final fallback to basic video capture
-            console.log("Attempting basic video capture...");
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                width: { ideal: 640 },
-                height: { ideal: 480 }
+            try {
+              // Try with more flexible constraints
+              console.log("Attempting with flexible constraints...");
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  deviceId: { ideal: device.deviceId },
+                  width: { min: 320, ideal: 640, max: 1280 },
+                  height: { min: 240, ideal: 480, max: 720 }
+                }
+              });
+              console.log("Successfully initialized camera with flexible constraints");
+              break;
+            } catch (flexibleError) {
+              console.warn(`Failed with flexible constraints for ${device.label}:`, flexibleError);
+              
+              if (device === videoDevices[videoDevices.length - 1]) {
+                // Last device, try one final time with minimal constraints
+                try {
+                  console.log("Attempting final fallback with minimal constraints...");
+                  stream = await navigator.mediaDevices.getUserMedia({
+                    video: true
+                  });
+                  console.log("Successfully initialized camera with minimal constraints");
+                  break;
+                } catch (fallbackError) {
+                  console.error("Final fallback attempt failed:", fallbackError);
+                  throw new Error("Failed to initialize camera with any settings");
+                }
               }
-            });
-            console.log("Successfully initialized camera with basic settings");
+            }
           }
         }
       } catch (streamError) {
@@ -451,12 +503,19 @@ export default function ImageUpload() {
                   <p>Please check:</p>
                   <ul className="list-disc list-inside text-left space-y-1">
                     <li>External camera is properly connected</li>
+                    <li>Camera is recognized in system settings</li>
                     <li>Camera permissions are granted in browser</li>
                     <li>No other applications are using the camera</li>
                   </ul>
-                  <p className="text-xs opacity-75 mt-2">
-                    If issues persist, try disconnecting and reconnecting your camera
-                  </p>
+                  <div className="text-xs opacity-75 mt-2 space-y-1">
+                    <p>Troubleshooting steps:</p>
+                    <ol className="list-decimal list-inside text-left">
+                      <li>Unplug and replug your USB camera</li>
+                      <li>Wait a few seconds for device detection</li>
+                      <li>Refresh the page and try again</li>
+                      <li>Check if camera works in other applications</li>
+                    </ol>
+                  </div>
                 </div>
               </div>
             </div>
