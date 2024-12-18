@@ -10,18 +10,31 @@ export default function ImageUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
 
+  // Handle component mounting
   useEffect(() => {
-    // Cleanup on unmount
+    setIsMounted(true);
     return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
+      setIsMounted(false);
+      // Cleanup camera stream
+      if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
       }
     };
   }, []);
+
+  // Pre-initialize video element
+  useEffect(() => {
+    if (isMounted && videoRef.current) {
+      videoRef.current.playsInline = true;
+      videoRef.current.muted = true;
+      console.log("Video element pre-initialized");
+    }
+  }, [isMounted]);
 
   const handleImageSelect = (file: File) => {
     // Validate file type
@@ -52,29 +65,57 @@ export default function ImageUpload() {
   };
 
   const startCamera = async () => {
+    if (!isMounted) {
+      console.log("Component not mounted yet");
+      return;
+    }
+
     try {
-      // Stop any existing stream
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
+      // Verify video element is available
+      if (!videoRef.current) {
+        throw new Error("Video element not available. Please try refreshing the page.");
       }
 
-      // Simple initialization with basic constraints
+      // Check if browser supports mediaDevices
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Camera API not supported in this browser");
+      }
+
+      // Stop any existing streams
+      if (videoRef.current.srcObject) {
+        const existingStream = videoRef.current.srcObject as MediaStream;
+        existingStream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+
+      console.log("Requesting camera access...");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          frameRate: { ideal: 30 },
           facingMode: 'environment' // Prefer external/rear camera
         }
       });
 
+      // Double check video element is still available
       if (!videoRef.current) {
-        throw new Error("Video element not initialized");
+        stream.getTracks().forEach(track => track.stop());
+        throw new Error("Video element lost during initialization");
       }
 
+      // Attach stream and start playback
       videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-      setIsCameraActive(true);
+      console.log("Stream attached to video element");
+
+      try {
+        await videoRef.current.play();
+        console.log("Video playback started");
+        setIsCameraActive(true);
+      } catch (playError) {
+        stream.getTracks().forEach(track => track.stop());
+        throw new Error("Failed to start video playback: " + (playError as Error).message);
+      }
 
     } catch (error) {
       console.error('Camera error:', error);
@@ -82,20 +123,23 @@ export default function ImageUpload() {
       
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
-          message += "Please grant camera permissions.";
+          message = "Camera access denied. Please grant camera permissions in your browser settings.";
         } else if (error.name === 'NotFoundError') {
-          message += "No camera found. Please check your connection.";
+          message = "No camera detected. Please ensure your USB camera is properly connected.";
         } else if (error.name === 'NotReadableError') {
-          message += "Camera is in use by another application.";
+          message = "Cannot access camera. Please ensure it's not in use by another application.";
+        } else if (error.name === 'OverconstrainedError') {
+          message = "Camera doesn't support requested settings. Please try again.";
         } else {
-          message += error.message;
+          message = error.message;
         }
       }
 
       toast({
         variant: "destructive",
         title: "Camera Error",
-        description: message
+        description: message,
+        duration: 5000
       });
       setIsCameraActive(false);
     }
