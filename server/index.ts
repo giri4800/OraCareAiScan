@@ -10,7 +10,6 @@ const app = express();
 function checkRequiredEnvVars() {
   const required = [
     "DATABASE_URL",
-    "FIREBASE_SERVICE_ACCOUNT",
     "ANTHROPIC_API_KEY"
   ];
   
@@ -18,6 +17,18 @@ function checkRequiredEnvVars() {
   
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
+  }
+}
+
+async function initializeDatabase() {
+  try {
+    // Test database connection
+    await db.query.analyses.findMany();
+    log("Database connection successful");
+    return true;
+  } catch (error) {
+    console.error("Database initialization error:", error);
+    return false;
   }
 }
 
@@ -31,26 +42,29 @@ async function startServer() {
       await import("./lib/firebase.js");
     }
 
+    // Initialize database
+    const dbInitialized = await initializeDatabase();
+    if (!dbInitialized) {
+      throw new Error("Failed to initialize database");
+    }
+
     // Essential middleware setup
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
 
-    // Configure file upload middleware with proper multipart handling
+    // Configure file upload middleware
     app.use(fileUpload({
       limits: { 
-        fileSize: 5 * 1024 * 1024, // 5MB max file size
-        files: 1 // Allow only one file upload at a time
+        fileSize: 5 * 1024 * 1024 // 5MB max file size
       },
-      useTempFiles: true,
-      tempFileDir: '/tmp/',
+      useTempFiles: false, // Store files in memory for faster processing
       createParentPath: true,
-      debug: process.env.NODE_ENV === 'development',
+      debug: false,
       safeFileNames: true,
       preserveExtension: true,
       abortOnLimit: true,
       responseOnLimit: "File size limit has been reached (5MB)",
-      uploadTimeout: 60000, // 60 seconds timeout
-      parseNested: true
+      uploadTimeout: 30000, // 30 seconds timeout
     }));
     
     // Add error handler specifically for file upload errors
@@ -146,4 +160,7 @@ async function startServer() {
 process.env.NODE_ENV = "development";
 
 // Start the server
-startServer();
+startServer().catch(error => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
+});

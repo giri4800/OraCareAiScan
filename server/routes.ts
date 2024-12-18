@@ -4,14 +4,11 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { UploadedFile } from "express-fileupload";
 import { createServer, type Server } from "http";
 import type { Express } from "express";
-import * as fs from 'fs';
-import { promisify } from 'util';
 import { db } from "@db";
 import { analyses } from "@db/schema";
 import { eq } from "drizzle-orm";
 
 const router = Router();
-const readFile = promisify(fs.readFile);
 
 if (!process.env.ANTHROPIC_API_KEY) {
   throw new Error("ANTHROPIC_API_KEY environment variable is required");
@@ -22,43 +19,15 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Initialize database connection and verify tables
-(async () => {
-  try {
-    // Test database connection
-    await db.query.analyses.findMany();
-    console.log("Database connection successful");
-  } catch (error) {
-    console.error("Database error:", error);
-    console.log("Running database push to create/update tables...");
-    try {
-      const { exec } = await import('child_process');
-      await new Promise((resolve, reject) => {
-        exec('npm run db:push', { stdio: 'inherit' }, (error, stdout, stderr) => {
-          if (error) {
-            console.error('Error running db:push:', error);
-            reject(error);
-            return;
-          }
-          console.log(stdout);
-          resolve(stdout);
-        });
-      });
-      console.log("Database tables created successfully");
-    } catch (pushError) {
-      console.error("Failed to create database tables:", pushError);
-      console.log("Please run 'npm run db:push' manually");
-    }
-  }
-})();
-
 // Get analysis history
-router.get("/analysis/history", async (req: Request, res: Response) => {
+router.get("/api/analysis/history", async (req: Request, res: Response) => {
   try {
+    console.log("Fetching analysis history");
     const results = await db.query.analyses.findMany({
       orderBy: (analyses, { desc }) => [desc(analyses.timestamp)]
     });
     
+    console.log(`Found ${results.length} analysis results`);
     res.json(results);
   } catch (error) {
     console.error('Failed to fetch analysis history:', error);
@@ -66,7 +35,8 @@ router.get("/analysis/history", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/analysis", async (req: Request, res: Response) => {
+// Handle image analysis
+router.post("/api/analysis", async (req: Request, res: Response) => {
   try {
     console.log("Received analysis request");
     
@@ -91,27 +61,10 @@ router.post("/analysis", async (req: Request, res: Response) => {
       });
     }
 
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024;
-    if (image.size > maxSize) {
-      console.log("File too large:", image.size);
-      return res.status(400).json({ 
-        error: "File too large. Maximum size is 5MB" 
-      });
-    }
-
     // Convert image to base64
     let base64Image: string;
     try {
-      if (image.tempFilePath) {
-        const imageBuffer = await readFile(image.tempFilePath);
-        base64Image = imageBuffer.toString('base64');
-      } else if (Buffer.isBuffer(image.data)) {
-        base64Image = image.data.toString('base64');
-      } else {
-        throw new Error("Invalid image data format");
-      }
-
+      base64Image = image.data.toString('base64');
       console.log("Image converted to base64, length:", base64Image.length);
 
       // the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
@@ -195,8 +148,8 @@ router.post("/analysis", async (req: Request, res: Response) => {
 });
 
 export function registerRoutes(app: Express): Server {
-  // Register all routes under /api prefix
-  app.use('/api', router);
+  // Register routes under /api prefix
+  app.use('/', router);
   
   // Health check route
   app.get('/health', (req, res) => {

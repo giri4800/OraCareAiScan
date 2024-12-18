@@ -58,6 +58,11 @@ export default function ImageUpload() {
 
   const handleCameraCapture = async () => {
     try {
+      // Reset any existing streams
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+
       // Get available cameras first
       const cameras = await getAvailableCameras();
       
@@ -65,25 +70,47 @@ export default function ImageUpload() {
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       
       let constraints: MediaTrackConstraints = {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        facingMode: isFrontCamera ? 'user' : 'environment'
+        width: { ideal: isMobile ? 1280 : 1920 },
+        height: { ideal: isMobile ? 720 : 1080 },
+        // Set quality and framerate for better performance
+        aspectRatio: { ideal: 16/9 },
+        frameRate: { max: 30 }
       };
 
-      // If we have a specific camera selected and we're not on mobile
-      if (selectedCamera && !isMobile) {
+      // Handle different camera scenarios
+      if (isMobile) {
+        // On mobile, use facingMode
+        constraints.facingMode = isFrontCamera ? 'user' : 'environment';
+      } else if (selectedCamera) {
+        // On desktop with specific camera selected
         constraints.deviceId = { exact: selectedCamera };
       }
+
+      console.log('Attempting to access camera with constraints:', constraints);
 
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: constraints,
         audio: false
       });
 
+      // Store the stream reference
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+
+      // Ensure video element is ready
+      if (!videoRef.current) {
+        throw new Error("Video element not initialized");
       }
+
+      // Set the stream to video element
+      videoRef.current.srcObject = stream;
+      
+      // Wait for video to be ready
+      await new Promise((resolve) => {
+        if (!videoRef.current) return;
+        videoRef.current.onloadedmetadata = () => resolve(true);
+      });
+
+      console.log('Camera stream started successfully');
       setShowCamera(true);
       
     } catch (error) {
@@ -94,6 +121,7 @@ export default function ImageUpload() {
         description: error instanceof Error 
           ? `Failed to access camera: ${error.message}`
           : "Failed to access camera. Please check permissions.",
+        duration: 5000,
       });
     }
   };
@@ -104,12 +132,15 @@ export default function ImageUpload() {
         toast({
           variant: "destructive",
           title: "Camera Error",
-          description: "Camera stream not available",
+          description: "Camera stream not available. Please try again.",
         });
         return;
       }
 
-      // Wait for video to be ready
+      // Pause video to ensure frame capture is stable
+      videoRef.current.pause();
+
+      // Ensure video is playing and ready
       if (videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
         toast({
           title: "Please wait",
@@ -118,22 +149,35 @@ export default function ImageUpload() {
         return;
       }
 
+      // Create canvas with video dimensions
       const canvas = document.createElement('canvas');
-      // Use video element dimensions for canvas
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
+      const video = videoRef.current;
+      
+      // Get the actual video stream dimensions
+      const streamSettings = (video.srcObject as MediaStream)
+        .getVideoTracks()[0].getSettings();
+      
+      // Set canvas size to match video stream
+      canvas.width = streamSettings.width || video.videoWidth;
+      canvas.height = streamSettings.height || video.videoHeight;
+      
+      console.log('Capturing image with dimensions:', {
+        width: canvas.width,
+        height: canvas.height
+      });
       
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         throw new Error("Could not get canvas context");
       }
 
-      // Capture frame from video
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      // Clear canvas and draw video frame
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      // Convert to blob
+      // Convert to blob with high quality
       const blob = await new Promise<Blob | null>((resolve) => {
-        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.8);
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95);
       });
 
       if (!blob) {
@@ -141,15 +185,22 @@ export default function ImageUpload() {
       }
 
       // Create file from blob
-      const file = new File([blob], "camera-capture.jpg", { 
+      const file = new File([blob], `camera-capture-${Date.now()}.jpg`, { 
         type: "image/jpeg",
         lastModified: Date.now()
+      });
+
+      // Log capture details
+      console.log('Image captured:', {
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified
       });
 
       // Handle the captured image
       handleImageSelect(file);
       
-      // Cleanup
+      // Clean up camera
       setShowCamera(false);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -158,6 +209,7 @@ export default function ImageUpload() {
       toast({
         title: "Success",
         description: "Image captured successfully",
+        duration: 3000,
       });
 
     } catch (error) {
@@ -166,6 +218,7 @@ export default function ImageUpload() {
         variant: "destructive",
         title: "Capture Failed",
         description: error instanceof Error ? error.message : "Failed to capture image",
+        duration: 5000,
       });
     }
   };
