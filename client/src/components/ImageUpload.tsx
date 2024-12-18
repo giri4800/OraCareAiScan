@@ -66,6 +66,11 @@ export default function ImageUpload() {
         throw new Error("Camera API is not supported in this browser");
       }
 
+      // Verify video element exists before proceeding
+      if (!videoRef.current) {
+        throw new Error("Video element not found");
+      }
+
       // Try to get the list of available cameras first
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
@@ -73,6 +78,19 @@ export default function ImageUpload() {
 
       if (videoDevices.length === 0) {
         throw new Error("No camera devices found");
+      }
+
+      // Stop any existing streams
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+
+      // Clear existing video source
+      if (videoRef.current.srcObject) {
+        const oldStream = videoRef.current.srcObject as MediaStream;
+        oldStream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
       }
 
       // Try environment camera first, fall back to any available camera
@@ -92,75 +110,52 @@ export default function ImageUpload() {
         });
       }
 
-      if (!videoRef.current) {
-        throw new Error("Video element not found");
-      }
-
       // Ensure video tracks are active
       const videoTrack = stream.getVideoTracks()[0];
       if (!videoTrack || !videoTrack.enabled) {
         throw new Error("No active video track found in stream");
       }
 
-      console.log("Camera stream obtained with constraints:", videoTrack.getConstraints());
-      console.log("Video track settings:", videoTrack.getSettings());
+      console.log("Camera stream obtained:", {
+        constraints: videoTrack.getConstraints(),
+        settings: videoTrack.getSettings()
+      });
 
-      // Clear any existing srcObject
-      if (videoRef.current.srcObject) {
-        const oldStream = videoRef.current.srcObject as MediaStream;
-        oldStream.getTracks().forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
+      // Set up video element
+      videoRef.current.autoplay = true;
+      videoRef.current.playsInline = true;
+      videoRef.current.muted = true;
 
-      console.log("Setting video stream...");
+      // Assign stream to video element
       videoRef.current.srcObject = stream;
       
-      // Force a reload of the video element
-      videoRef.current.load();
-      
-      videoRef.current.onloadedmetadata = () => {
-        console.log("Video metadata loaded, attempting to play...");
-        if (!videoRef.current) {
-          console.error("Video element lost after metadata loaded");
-          return;
-        }
+      // Set up metadata and play handlers
+      const playVideo = async () => {
+        if (!videoRef.current) return;
         
-        // Ensure video properties are set correctly
-        videoRef.current.autoplay = true;
-        videoRef.current.playsInline = true;
-        videoRef.current.muted = true;
-        
-        const playPromise = videoRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              console.log("Video playing successfully");
-              console.log("Video element state:", {
-                readyState: videoRef.current?.readyState,
-                paused: videoRef.current?.paused,
-                videoWidth: videoRef.current?.videoWidth,
-                videoHeight: videoRef.current?.videoHeight
-              });
-            })
-            .catch(e => {
-              console.error("Error playing video:", e);
-              toast({
-                variant: "destructive",
-                title: "Camera Error",
-                description: "Failed to start video preview. Please try again.",
-              });
-            });
+        try {
+          await videoRef.current.play();
+          console.log("Video playing successfully:", {
+            readyState: videoRef.current.readyState,
+            paused: videoRef.current.paused,
+            videoWidth: videoRef.current.videoWidth,
+            videoHeight: videoRef.current.videoHeight
+          });
+          setIsCameraActive(true);
+        } catch (error) {
+          console.error("Error playing video:", error);
+          toast({
+            variant: "destructive",
+            title: "Camera Error",
+            description: "Failed to start video preview. Please try again.",
+          });
         }
       };
 
-      videoRef.current.onerror = (e) => {
-        console.error("Video element error:", e);
-      };
+      videoRef.current.onloadedmetadata = playVideo;
       
+      // Store stream reference
       streamRef.current = stream;
-      setIsCameraActive(true);
-      
-      console.log("Camera initialized successfully");
     } catch (error) {
       console.error('Camera access error:', error);
       
@@ -364,21 +359,26 @@ export default function ImageUpload() {
 
       {isCameraActive && (
         <div className="space-y-4 bg-card p-6 rounded-lg border">
-          <div className="aspect-video relative rounded-lg overflow-hidden border bg-background">
+          <div className="aspect-video relative rounded-lg overflow-hidden border bg-black">
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-contain"
+              className="absolute inset-0 w-full h-full object-contain"
               style={{ 
-                maxWidth: '100%', 
-                maxHeight: '100%',
-                backgroundColor: 'black' // Add background to make video more visible
+                minWidth: '100%', 
+                minHeight: '100%',
+                backgroundColor: 'black'
               }}
               width={1280}
               height={720}
             />
+            {!isCameraActive && (
+              <div className="absolute inset-0 flex items-center justify-center text-white">
+                Initializing camera...
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Button
