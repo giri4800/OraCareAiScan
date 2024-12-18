@@ -73,6 +73,24 @@ export default function ImageUpload() {
         throw new Error("Camera system not ready. Please wait a moment and try again.");
       }
 
+      // List available devices first
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      console.log("Available video devices:", videoDevices.map(d => ({
+        label: d.label || 'Unnamed Device',
+        id: d.deviceId
+      })));
+
+      if (videoDevices.length === 0) {
+        throw new Error("No video devices found");
+      }
+
+      // Try to find the Fingers webcam
+      const fingersWebcam = videoDevices.find(d => 
+        d.label.toLowerCase().includes('fingers') || 
+        d.label.toLowerCase().includes('usb')
+      );
+
       // Stop any existing streams
       if (videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
@@ -82,14 +100,30 @@ export default function ImageUpload() {
 
       console.log("Requesting camera access...");
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
+        video: fingersWebcam ? {
+          deviceId: { exact: fingersWebcam.deviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } : {
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          facingMode: 'environment' // Prefer rear/external camera
+          facingMode: 'environment'
         }
       });
 
-      console.log("Camera stream obtained, attaching to video element");
+      console.log("Camera stream obtained:", {
+        tracks: stream.getVideoTracks().map(t => ({
+          label: t.label,
+          enabled: t.enabled,
+          muted: t.muted
+        }))
+      });
+
+      if (!videoRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        throw new Error("Video element lost during initialization");
+      }
+
       videoRef.current.srcObject = stream;
       
       try {
@@ -98,8 +132,9 @@ export default function ImageUpload() {
         console.log("Video playback started successfully");
         setIsCameraActive(true);
       } catch (playError) {
+        console.error("Play error details:", playError);
         stream.getTracks().forEach(track => track.stop());
-        throw new Error("Failed to start video playback. Please try again.");
+        throw playError;
       }
     } catch (error) {
       console.error('Camera error:', error);
