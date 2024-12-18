@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -9,7 +9,61 @@ export default function ImageUpload() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [showCamera, setShowCamera] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    return () => {
+      // Cleanup: stop camera stream when component unmounts
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const handleCameraCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setShowCamera(true);
+    } catch (error) {
+      console.error('Camera access error:', error);
+      toast({
+        variant: "destructive",
+        title: "Camera Error",
+        description: "Failed to access camera. Please check permissions.",
+      });
+    }
+  };
+
+  const handleCapture = () => {
+    if (!videoRef.current) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(videoRef.current, 0, 0);
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], "camera-capture.jpg", { type: "image/jpeg" });
+        handleImageSelect(file);
+      }
+      setShowCamera(false);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    }, 'image/jpeg', 0.8);
+  };
 
   const handleImageSelect = (file: File) => {
     // Validate file type
@@ -125,7 +179,7 @@ export default function ImageUpload() {
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6 p-6">
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-2 gap-6">
         <Button
           variant="outline"
           size="lg"
@@ -135,6 +189,17 @@ export default function ImageUpload() {
         >
           <Upload className="h-6 w-6" />
           <span>Upload Image</span>
+        </Button>
+
+        <Button
+          variant="outline"
+          size="lg"
+          className="h-24 flex flex-col items-center justify-center gap-2"
+          onClick={handleCameraCapture}
+          disabled={isUploading}
+        >
+          <Camera className="h-6 w-6" />
+          <span>Take Photo</span>
         </Button>
       </div>
 
@@ -148,6 +213,31 @@ export default function ImageUpload() {
           if (file) handleImageSelect(file);
         }}
       />
+      
+      {showCamera && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg max-w-2xl w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Take a Photo</h3>
+            <div className="aspect-video relative rounded-lg overflow-hidden bg-gray-100 mb-4">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="flex justify-end gap-4">
+              <Button variant="outline" onClick={() => setShowCamera(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCapture}>
+                <Camera className="w-4 h-4 mr-2" />
+                Capture
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {previewUrl && (
         <div className="space-y-6 bg-card p-6 rounded-lg border">

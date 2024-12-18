@@ -34,13 +34,15 @@ async function startServer() {
 
     // Configure file upload middleware with proper multipart handling
     app.use(fileUpload({
-      limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max file size
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max file size to match frontend limit
       useTempFiles: true,
       tempFileDir: '/tmp/',
       createParentPath: true,
       debug: process.env.NODE_ENV === "development",
-      parseNested: true,
-      abortOnLimit: true
+      safeFileNames: true,
+      preserveExtension: true,
+      abortOnLimit: true,
+      responseOnLimit: "File size limit has been reached (5MB)"
     }));
 
     // Request logging middleware

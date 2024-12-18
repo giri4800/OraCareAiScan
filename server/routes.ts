@@ -6,6 +6,10 @@ import { createServer, type Server } from "http";
 import type { Express } from "express";
 import * as fs from 'fs';
 import { promisify } from 'util';
+import { db } from "@db";
+import { analyses } from "@db/schema";
+import { eq } from "drizzle-orm";
+
 
 const router = Router();
 const readFile = promisify(fs.readFile);
@@ -19,7 +23,25 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Upload and analyze image
+// Create database tables if they don't exist
+db.query.analyses.findMany().catch(() => {
+  console.log("Initializing database tables...");
+});
+
+// Get analysis history
+router.get("/api/analysis/history", async (req: Request, res: Response) => {
+  try {
+    const results = await db.query.analyses.findMany({
+      orderBy: (analyses, { desc }) => [desc(analyses.timestamp)]
+    });
+    
+    res.json(results);
+  } catch (error) {
+    console.error('Failed to fetch analysis history:', error);
+    res.status(500).json({ error: "Failed to fetch analysis history" });
+  }
+});
+
 router.post("/api/analysis", async (req: Request, res: Response) => {
   try {
     console.log("Received analysis request");
@@ -116,17 +138,19 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
         };
       }
 
-      const result = {
-        id: 'temp-' + Date.now(),
-        result: analysisResult.result,
-        confidence: analysisResult.confidence,
-        explanation: analysisResult.explanation,
-        imageUrl: `data:${image.mimetype};base64,${base64Image}`,
-        timestamp: new Date()
-      };
+      // Save analysis result to database
+      const [savedAnalysis] = await db.insert(analyses)
+        .values({
+          userId: req.body.userId || 'anonymous', // Handle anonymous users
+          imageUrl: `data:${image.mimetype};base64,${base64Image}`,
+          result: analysisResult.result,
+          confidence: analysisResult.confidence,
+          explanation: analysisResult.explanation,
+        })
+        .returning();
 
-      console.log("Sending analysis result");
-      res.json(result);
+      console.log("Analysis saved to database");
+      res.json(savedAnalysis);
 
     } catch (error) {
       console.error('Image processing error:', error);
