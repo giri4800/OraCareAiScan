@@ -30,24 +30,49 @@ export default function ImageUpload() {
       toast({
         variant: "destructive",
         title: "Invalid File Type",
-        description: `Please select a valid image file (${validTypes.join(", ")})`,
+        description: `Supported formats: ${validTypes.join(", ")}`,
       });
       return;
     }
 
-    // Validate file size (5MB)
-    if (file.size > 5 * 1024 * 1024) {
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
       toast({
         variant: "destructive",
         title: "File Too Large",
         description: "Image size should be less than 5MB",
       });
       return;
+    }
+
+    console.log("Selected file:", {
+      name: file.name,
+      type: file.type,
+      size: file.size
+    });
+
+    setSelectedImage(file);
+    const imageUrl = URL.createObjectURL(file);
+    setPreviewUrl(imageUrl);
+  };
+
   const startCamera = async () => {
     try {
+      console.log("Requesting camera access...");
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          aspectRatio: { ideal: 16/9 },
+          frameRate: { max: 30 }
+        } 
       });
+      
+      console.log("Available cameras:", await navigator.mediaDevices.enumerateDevices());
+      console.log("Attempting to access camera with constraints:", stream.getVideoTracks()[0].getConstraints());
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
@@ -89,18 +114,6 @@ export default function ImageUpload() {
       handleImageSelect(file);
       stopCamera();
     }, 'image/jpeg', 0.8);
-  };
-    }
-
-    console.log("Selected file:", {
-      name: file.name,
-      type: file.type,
-      size: file.size
-    });
-
-    setSelectedImage(file);
-    const imageUrl = URL.createObjectURL(file);
-    setPreviewUrl(imageUrl);
   };
 
   const handleAnalyze = async () => {
@@ -249,7 +262,7 @@ export default function ImageUpload() {
         </div>
       )}
 
-      {previewUrl && (
+      {previewUrl && !isCameraActive && (
         <div className="space-y-6 bg-card p-6 rounded-lg border">
           <div className="aspect-video relative rounded-lg overflow-hidden border bg-background">
             <img
