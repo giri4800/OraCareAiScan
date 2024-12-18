@@ -11,15 +11,26 @@ export default function ImageUpload() {
   const [progress, setProgress] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
+
+  // Cleanup function for the stream
+  const cleanupStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-      }
+      cleanupStream();
     };
   }, []);
 
@@ -53,39 +64,53 @@ export default function ImageUpload() {
 
   const startCamera = async () => {
     try {
-      // Stop any existing stream
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
+      // Clean up any existing streams first
+      cleanupStream();
 
-      // Request camera access with basic constraints
+      // Request camera access
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
+        video: true // Start with basic constraints
       });
 
+      // Store stream reference
+      streamRef.current = stream;
+
       if (!videoRef.current) {
-        stream.getTracks().forEach(track => track.stop());
-        throw new Error("Camera initialization failed");
+        throw new Error("Video element not found");
       }
 
-      videoRef.current.srcObject = stream;
-      try {
-        await videoRef.current.play();
-        setIsCameraActive(true);
-      } catch (error) {
-        stream.getTracks().forEach(track => track.stop());
-        throw error;
-      }
+      // Set up video element
+      const video = videoRef.current;
+      video.srcObject = stream;
+      video.playsInline = true;
+      video.muted = true;
+
+      // Wait for video to be ready before playing
+      await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error("Video element initialization timeout"));
+        }, 5000);
+
+        video.addEventListener('loadedmetadata', () => {
+          clearTimeout(timeoutId);
+          resolve(true);
+        }, { once: true });
+
+        video.addEventListener('error', (e) => {
+          clearTimeout(timeoutId);
+          reject(new Error(`Video element error: ${video.error?.message || 'Unknown error'}`));
+        }, { once: true });
+      });
+
+      // Start playback
+      await video.play();
+      setIsCameraActive(true);
 
     } catch (error) {
       console.error('Camera error:', error);
+      cleanupStream();
+      
       let message = "Failed to access camera. ";
-
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
           message = "Camera access denied. Please grant camera permissions.";
@@ -109,11 +134,7 @@ export default function ImageUpload() {
   };
 
   const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
+    cleanupStream();
     setIsCameraActive(false);
   };
 
