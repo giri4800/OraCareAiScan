@@ -10,7 +10,6 @@ import { db } from "@db";
 import { analyses } from "@db/schema";
 import { eq } from "drizzle-orm";
 
-
 const router = Router();
 const readFile = promisify(fs.readFile);
 
@@ -23,13 +22,38 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Create database tables if they don't exist
-db.query.analyses.findMany().catch(() => {
-  console.log("Initializing database tables...");
-});
+// Initialize database connection and verify tables
+(async () => {
+  try {
+    // Test database connection
+    await db.query.analyses.findMany();
+    console.log("Database connection successful");
+  } catch (error) {
+    console.error("Database error:", error);
+    console.log("Running database push to create/update tables...");
+    try {
+      const { exec } = await import('child_process');
+      await new Promise((resolve, reject) => {
+        exec('npm run db:push', { stdio: 'inherit' }, (error, stdout, stderr) => {
+          if (error) {
+            console.error('Error running db:push:', error);
+            reject(error);
+            return;
+          }
+          console.log(stdout);
+          resolve(stdout);
+        });
+      });
+      console.log("Database tables created successfully");
+    } catch (pushError) {
+      console.error("Failed to create database tables:", pushError);
+      console.log("Please run 'npm run db:push' manually");
+    }
+  }
+})();
 
 // Get analysis history
-router.get("/api/analysis/history", async (req: Request, res: Response) => {
+router.get("/analysis/history", async (req: Request, res: Response) => {
   try {
     const results = await db.query.analyses.findMany({
       orderBy: (analyses, { desc }) => [desc(analyses.timestamp)]
@@ -42,7 +66,7 @@ router.get("/api/analysis/history", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/api/analysis", async (req: Request, res: Response) => {
+router.post("/analysis", async (req: Request, res: Response) => {
   try {
     console.log("Received analysis request");
     
@@ -171,6 +195,13 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
 });
 
 export function registerRoutes(app: Express): Server {
-  app.use(router);
+  // Register all routes under /api prefix
+  app.use('/api', router);
+  
+  // Health check route
+  app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+  });
+
   return createServer(app);
 }

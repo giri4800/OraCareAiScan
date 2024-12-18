@@ -3,7 +3,8 @@ import fileUpload from "express-fileupload";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { db } from "@db";
-import "./lib/firebase"; // Import Firebase initialization
+
+const app = express();
 
 // Function to verify required environment variables
 function checkRequiredEnvVars() {
@@ -25,25 +26,47 @@ async function startServer() {
     // Verify environment variables before starting the server
     checkRequiredEnvVars();
 
-    // Initialize Express app
-    const app = express();
-    
+    // Initialize Firebase only if we have the service account
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      await import("./lib/firebase.js");
+    }
+
     // Essential middleware setup
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
 
     // Configure file upload middleware with proper multipart handling
     app.use(fileUpload({
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max file size to match frontend limit
+      limits: { 
+        fileSize: 5 * 1024 * 1024, // 5MB max file size
+        files: 1 // Allow only one file upload at a time
+      },
       useTempFiles: true,
       tempFileDir: '/tmp/',
       createParentPath: true,
-      debug: process.env.NODE_ENV === "development",
+      debug: process.env.NODE_ENV === 'development',
       safeFileNames: true,
       preserveExtension: true,
       abortOnLimit: true,
-      responseOnLimit: "File size limit has been reached (5MB)"
+      responseOnLimit: "File size limit has been reached (5MB)",
+      uploadTimeout: 60000, // 60 seconds timeout
+      parseNested: true
     }));
+    
+    // Add error handler specifically for file upload errors
+    app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          error: 'File is too large. Maximum size is 5MB'
+        });
+      }
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({
+          error: 'Unexpected file upload'
+        });
+      }
+      next(err);
+    });
 
     // Request logging middleware
     app.use((req, res, next) => {
@@ -87,13 +110,6 @@ async function startServer() {
         stack: err.stack,
         status: err.status || err.statusCode
       });
-
-      // Handle file upload errors
-      if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({
-          message: 'File is too large. Maximum size is 50MB.'
-        });
-      }
 
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";

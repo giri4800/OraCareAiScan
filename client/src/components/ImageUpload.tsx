@@ -23,46 +23,151 @@ export default function ImageUpload() {
     };
   }, []);
 
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCamera, setSelectedCamera] = useState<string>('');
+  const [isFrontCamera, setIsFrontCamera] = useState(false);
+
+  const getAvailableCameras = async () => {
+    try {
+      // First request permission
+      await navigator.mediaDevices.getUserMedia({ video: true });
+      
+      // Then enumerate devices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      
+      console.log('Available cameras:', videoDevices);
+      setAvailableCameras(videoDevices);
+      
+      // Select the first camera by default
+      if (videoDevices.length > 0 && !selectedCamera) {
+        setSelectedCamera(videoDevices[0].deviceId);
+      }
+      
+      return videoDevices;
+    } catch (error) {
+      console.error('Error getting cameras:', error);
+      toast({
+        variant: "destructive",
+        title: "Camera Error",
+        description: "Failed to access camera list. Please check permissions.",
+      });
+      return [];
+    }
+  };
+
   const handleCameraCapture = async () => {
     try {
+      // Get available cameras first
+      const cameras = await getAvailableCameras();
+      
+      // Determine if we're on a mobile device
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      
+      let constraints: MediaTrackConstraints = {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        facingMode: isFrontCamera ? 'user' : 'environment'
+      };
+
+      // If we have a specific camera selected and we're not on mobile
+      if (selectedCamera && !isMobile) {
+        constraints.deviceId = { exact: selectedCamera };
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
+        video: constraints,
+        audio: false
       });
+
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
       setShowCamera(true);
+      
     } catch (error) {
       console.error('Camera access error:', error);
       toast({
         variant: "destructive",
         title: "Camera Error",
-        description: "Failed to access camera. Please check permissions.",
+        description: error instanceof Error 
+          ? `Failed to access camera: ${error.message}`
+          : "Failed to access camera. Please check permissions.",
       });
     }
   };
 
-  const handleCapture = () => {
-    if (!videoRef.current) return;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.drawImage(videoRef.current, 0, 0);
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], "camera-capture.jpg", { type: "image/jpeg" });
-        handleImageSelect(file);
+  const handleCapture = async () => {
+    try {
+      if (!videoRef.current || !videoRef.current.srcObject) {
+        toast({
+          variant: "destructive",
+          title: "Camera Error",
+          description: "Camera stream not available",
+        });
+        return;
       }
+
+      // Wait for video to be ready
+      if (videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
+        toast({
+          title: "Please wait",
+          description: "Camera is initializing...",
+        });
+        return;
+      }
+
+      const canvas = document.createElement('canvas');
+      // Use video element dimensions for canvas
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error("Could not get canvas context");
+      }
+
+      // Capture frame from video
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+      // Convert to blob
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.8);
+      });
+
+      if (!blob) {
+        throw new Error("Failed to capture image");
+      }
+
+      // Create file from blob
+      const file = new File([blob], "camera-capture.jpg", { 
+        type: "image/jpeg",
+        lastModified: Date.now()
+      });
+
+      // Handle the captured image
+      handleImageSelect(file);
+      
+      // Cleanup
       setShowCamera(false);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
-    }, 'image/jpeg', 0.8);
+
+      toast({
+        title: "Success",
+        description: "Image captured successfully",
+      });
+
+    } catch (error) {
+      console.error('Capture error:', error);
+      toast({
+        variant: "destructive",
+        title: "Capture Failed",
+        description: error instanceof Error ? error.message : "Failed to capture image",
+      });
+    }
   };
 
   const handleImageSelect = (file: File) => {
@@ -217,7 +322,32 @@ export default function ImageUpload() {
       {showCamera && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg max-w-2xl w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Take a Photo</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Take a Photo</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsFrontCamera(!isFrontCamera)}
+                className="md:hidden" // Only show on mobile
+              >
+                {isFrontCamera ? 'Use Back Camera' : 'Use Front Camera'}
+              </Button>
+            </div>
+
+            {availableCameras.length > 1 && (
+              <select
+                className="w-full p-2 mb-4 border rounded-md dark:bg-gray-800 dark:border-gray-700"
+                value={selectedCamera}
+                onChange={(e) => setSelectedCamera(e.target.value)}
+              >
+                {availableCameras.map((camera) => (
+                  <option key={camera.deviceId} value={camera.deviceId}>
+                    {camera.label || `Camera ${camera.deviceId.slice(0, 5)}...`}
+                  </option>
+                ))}
+              </select>
+            )}
+
             <div className="aspect-video relative rounded-lg overflow-hidden bg-gray-100 mb-4">
               <video
                 ref={videoRef}
@@ -226,8 +356,17 @@ export default function ImageUpload() {
                 className="w-full h-full object-cover"
               />
             </div>
+
             <div className="flex justify-end gap-4">
-              <Button variant="outline" onClick={() => setShowCamera(false)}>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowCamera(false);
+                  if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                  }
+                }}
+              >
                 Cancel
               </Button>
               <Button onClick={handleCapture}>
