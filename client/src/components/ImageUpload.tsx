@@ -1,8 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Camera, Upload, Search, Loader2, X } from "lucide-react";
+import { Camera, Upload, Search, Loader2 } from "lucide-react";
 
 export default function ImageUpload() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -19,42 +19,38 @@ export default function ImageUpload() {
     setPreviewUrl(imageUrl);
   };
 
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
+
   const startCamera = async () => {
     try {
-      console.log("Starting camera...");
+      // Create video element if needed
+      if (!videoRef.current) {
+        console.error("Video element not initialized");
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: 1280,
-          height: 720,
-        }
+        video: true
       });
 
-      console.log("Got camera stream:", stream.getVideoTracks()[0].label);
-
-      if (videoRef.current) {
-        console.log("Setting up video element");
-        videoRef.current.srcObject = stream;
-        
-        // Wait for video to start playing
-        await new Promise((resolve) => {
-          if (!videoRef.current) return;
-          videoRef.current.onloadedmetadata = () => {
-            console.log("Video metadata loaded");
-            if (videoRef.current) {
-              videoRef.current.play()
-                .then(() => {
-                  console.log("Video playing");
-                  resolve(true);
-                })
-                .catch(err => console.error("Play error:", err));
-            }
-          };
-        });
-
-        setIsCameraActive(true);
-      } else {
-        console.error("No video element available");
-      }
+      // Attach stream to video element
+      videoRef.current.srcObject = stream;
+      videoRef.current.play();
+      setIsCameraActive(true);
     } catch (error) {
       console.error('Camera error:', error);
       toast({
@@ -63,15 +59,6 @@ export default function ImageUpload() {
         description: "Failed to access camera"
       });
     }
-  };
-
-  const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
-    setIsCameraActive(false);
   };
 
   const captureImage = () => {
@@ -110,7 +97,6 @@ export default function ImageUpload() {
       const formData = new FormData();
       formData.append("image", selectedImage);
 
-      setProgress(50);
       const response = await fetch("/api/analysis", {
         method: "POST",
         body: formData
@@ -120,26 +106,12 @@ export default function ImageUpload() {
         throw new Error(`Server error: ${response.status}`);
       }
 
-      setProgress(75);
-      const result = await response.json();
       setProgress(100);
+      const result = await response.json();
 
       toast({
         title: "Analysis Complete",
-        description: (
-          <div className="space-y-2">
-            <p className="font-medium">
-              Result: <span className={result.result === "Normal" ? "text-green-600" : "text-red-600"}>
-                {result.result}
-              </span>
-            </p>
-            <p>Confidence: {(result.confidence * 100).toFixed(1)}%</p>
-            {result.explanation && (
-              <p className="text-sm text-gray-600">{result.explanation}</p>
-            )}
-          </div>
-        ),
-        duration: 5000,
+        description: `Result: ${result.message}`,
       });
 
       setSelectedImage(null);
@@ -178,17 +150,8 @@ export default function ImageUpload() {
           onClick={isCameraActive ? stopCamera : startCamera}
           disabled={isUploading}
         >
-          {isCameraActive ? (
-            <>
-              <X className="h-6 w-6" />
-              <span>Stop Camera</span>
-            </>
-          ) : (
-            <>
-              <Camera className="h-6 w-6" />
-              <span>Use Camera</span>
-            </>
-          )}
+          <Camera className="h-6 w-6" />
+          <span>{isCameraActive ? 'Stop Camera' : 'Use Camera'}</span>
         </Button>
       </div>
 
@@ -204,21 +167,17 @@ export default function ImageUpload() {
       />
 
       {isCameraActive && (
-        <div className="space-y-4">
-          <div className="aspect-video relative rounded-lg overflow-hidden bg-black">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{ width: '100%', height: '100%' }}
-              className="absolute inset-0 object-cover bg-black"
-            />
-          </div>
-
+        <div className="relative aspect-video rounded-lg overflow-hidden bg-black">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute inset-0 w-full h-full object-cover"
+          />
           <Button
             size="lg"
-            className="w-full"
+            className="absolute bottom-4 left-1/2 transform -translate-x-1/2"
             onClick={captureImage}
           >
             <Camera className="mr-2 h-5 w-5" />
@@ -228,29 +187,29 @@ export default function ImageUpload() {
       )}
 
       {previewUrl && !isCameraActive && (
-        <div className="space-y-6">
-          <div className="aspect-video relative rounded-lg overflow-hidden bg-background">
+        <div className="space-y-4">
+          <div className="aspect-video relative rounded-lg overflow-hidden bg-gray-100">
             <img
               src={previewUrl}
               alt="Preview"
-              className="object-contain w-full h-full"
+              className="w-full h-full object-contain"
             />
           </div>
 
           <Button
             size="lg"
-            className="w-full text-lg"
+            className="w-full"
             onClick={handleAnalyze}
             disabled={isUploading}
           >
             {isUploading ? (
               <>
-                <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 Analyzing...
               </>
             ) : (
               <>
-                <Search className="mr-3 h-5 w-5" />
+                <Search className="mr-2 h-5 w-5" />
                 Analyze Image
               </>
             )}
@@ -259,12 +218,7 @@ export default function ImageUpload() {
       )}
 
       {isUploading && (
-        <div className="space-y-3">
-          <Progress value={progress} className="h-2" />
-          <p className="text-sm text-muted-foreground text-center font-medium">
-            {progress === 100 ? 'Analysis complete!' : 'Analyzing image...'}
-          </p>
-        </div>
+        <Progress value={progress} className="h-2" />
       )}
     </div>
   );
