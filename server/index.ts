@@ -4,28 +4,9 @@ import { setupVite, serveStatic, log } from "./vite";
 import { db } from "@db";
 import fileUpload from "express-fileupload";
 
-// Initialize express app
 const app = express();
 
-// Basic express configuration
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Configure file upload middleware with debug mode for development
-app.use(fileUpload({
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max file size
-  useTempFiles: false,
-  createParentPath: true,
-  debug: true, // Enable debug mode to see what's happening
-  safeFileNames: true,
-  preserveExtension: true,
-  abortOnLimit: true,
-  responseOnLimit: "File size limit has been reached (5MB)",
-  uploadTimeout: 30000,
-  parseNested: true // Enable nested file uploads
-}));
-
-// Function to verify required environment variables
+// First, check environment variables
 function checkRequiredEnvVars() {
   const required = [
     "DATABASE_URL",
@@ -35,7 +16,7 @@ function checkRequiredEnvVars() {
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {
-    console.error('Environment variables missing:', missing);
+    console.error('Missing required environment variables:', missing);
     throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
   }
 
@@ -43,10 +24,10 @@ function checkRequiredEnvVars() {
   return true;
 }
 
+// Initialize database connection
 async function initializeDatabase() {
   try {
     console.log("Attempting database connection...");
-    // Test database connection with a simple query
     const result = await db.query.analyses.findMany({
       limit: 1
     });
@@ -67,51 +48,33 @@ async function startServer() {
   try {
     log("Starting server initialization...");
     
-    // Verify environment variables before starting the server
+    // 1. Check environment variables
     checkRequiredEnvVars();
 
-    // Initialize database
+    // 2. Initialize database
     const dbInitialized = await initializeDatabase();
     if (!dbInitialized) {
       throw new Error("Failed to initialize database");
     }
 
-    // Essential middleware setup
+    // 3. Configure basic middleware
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
 
-    // Configure file upload middleware
+    // 4. Configure file upload middleware
     app.use(fileUpload({
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max file size
-      useTempFiles: false,
+      useTempFiles: true,
+      tempFileDir: '/tmp/',
       createParentPath: true,
-      debug: true, // Enable debug mode
+      debug: process.env.NODE_ENV === 'development',
       safeFileNames: true,
-      preserveExtension: true,
+      preserveExtension: 4,
       abortOnLimit: true,
-      responseOnLimit: "File size limit has been reached (5MB)",
-      uploadTimeout: 30000,
-      tempFileDir: '/tmp/'
+      uploadTimeout: 30000
     }));
 
-    // Single error handler for file upload and other errors
-    app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-      console.error('Error occurred:', err);
-      
-      if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({
-          error: 'File is too large. Maximum size is 5MB'
-        });
-      }
-      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-        return res.status(400).json({
-          error: 'Unexpected file upload'
-        });
-      }
-      next(err);
-    });
-
-    // Request logging middleware
+    // 5. Request logging middleware
     app.use((req, res, next) => {
       const start = Date.now();
       const path = req.path;
@@ -142,43 +105,53 @@ async function startServer() {
       next();
     });
 
-    // Create the HTTP server and register routes
+    // 6. Create HTTP server and register routes
     const server = registerRoutes(app);
 
-    // Error handling middleware should be last
+    // 7. Error handling middleware (must be after routes)
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      // Log the full error for debugging
       console.error('Error:', {
         message: err.message,
         stack: err.stack,
         status: err.status || err.statusCode
       });
 
+      // Handle file upload errors
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          error: 'File size limit exceeded (max: 5MB)'
+        });
+      }
+      
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({
+          error: 'Unexpected file upload'
+        });
+      }
+
+      // Handle other errors
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
       
-      // Send a sanitized error response
       res.status(status).json({ 
-        message,
-        status,
+        error: message,
         timestamp: new Date().toISOString()
       });
     });
 
-    // Setup Vite in development mode
+    // 8. Setup Vite in development mode or serve static files in production
     if (process.env.NODE_ENV === "development") {
-      log("Starting in development mode");
       await setupVite(app, server);
     } else {
-      log("Starting in production mode");
       serveStatic(app);
     }
 
-    // Start the server
+    // 9. Start the server
     const PORT = 5000;
     server.listen(PORT, "0.0.0.0", () => {
       log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
     });
+
   } catch (error) {
     console.error("Failed to start server:", error);
     process.exit(1);

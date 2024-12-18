@@ -94,63 +94,58 @@ export default function ImageUpload() {
 
   const handleCameraCapture = async () => {
     try {
-      // Check if mediaDevices API is supported
+      console.log('Starting camera initialization...');
+      
+      // Basic browser compatibility check
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Camera API is not supported in this browser");
       }
 
-      // Cleanup any existing streams
-      if (streamRef.current) {
-        console.log('Cleaning up existing stream...');
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-
-      // Simple constraints for web browser
-      const constraints = {
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "user"
-        },
+      // Request basic camera access first
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
         audio: false
-      };
-
-      console.log('Requesting camera access with constraints:', constraints);
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      if (!stream) {
-        throw new Error("Failed to get camera stream");
-      }
-
-      // Log successful camera access
-      const track = stream.getVideoTracks()[0];
-      console.log('Camera accessed successfully:', {
-        label: track.label,
-        settings: track.getSettings()
       });
 
-      // Store stream reference
+      console.log('Basic camera access granted, configuring stream...');
+
+      // Now configure the video track with specific constraints
+      const videoTrack = stream.getVideoTracks()[0];
+      await videoTrack.applyConstraints({
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      });
+
+      // Store stream reference after successful configuration
       streamRef.current = stream;
 
-      // Initialize video element
+      // Set up video element
       if (!videoRef.current) {
         throw new Error("Video element not initialized");
       }
 
-      // Set up video stream
+      console.log('Setting up video element...');
       videoRef.current.srcObject = stream;
+      
+      // Wait for video to be ready
       await new Promise<void>((resolve, reject) => {
-        if (!videoRef.current) return reject(new Error("Video element lost"));
+        if (!videoRef.current) {
+          reject(new Error("Video element lost"));
+          return;
+        }
         
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play()
-            .then(() => resolve())
+          if (!videoRef.current) return;
+          videoRef.current.play()
+            .then(() => {
+              console.log('Video playback started');
+              resolve();
+            })
             .catch(reject);
         };
       });
 
-      console.log('Video stream started successfully');
+      console.log('Camera setup completed successfully');
       setShowCamera(true);
 
     } catch (error) {
