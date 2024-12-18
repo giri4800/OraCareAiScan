@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -10,159 +10,63 @@ export default function ImageUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
 
-  // Handle cleanup when component unmounts or camera is stopped
-  const stopCamera = () => {
-    try {
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
-    } catch (error) {
-      console.error('Error stopping camera:', error);
-    }
-    setIsCameraActive(false);
-    setIsInitializing(false);
-  };
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
   const handleImageSelect = (file: File) => {
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      toast({
-        variant: "destructive",
-        title: "Invalid File Type",
-        description: `Supported formats: ${validTypes.join(", ")}`,
-      });
-      return;
-    }
-
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024;
-    if (file.size > maxSize) {
-      toast({
-        variant: "destructive",
-        title: "File Too Large",
-        description: "Image size should be less than 5MB",
-      });
-      return;
-    }
-
     setSelectedImage(file);
     const imageUrl = URL.createObjectURL(file);
     setPreviewUrl(imageUrl);
   };
 
   const startCamera = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      toast({
-        variant: "destructive",
-        title: "Camera Error",
-        description: "Camera API is not supported in your browser"
-      });
-      return;
-    }
-
-    if (isInitializing) return;
-    setIsInitializing(true);
-
     try {
-      // Stop any existing streams
-      stopCamera();
-
-      // Request camera access with basic constraints
+      // Basic camera request
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
+        video: true
       });
 
-      // Verify video element exists
-      if (!videoRef.current) {
-        stream.getTracks().forEach(track => track.stop());
-        throw new Error("Video element not found");
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        setIsCameraActive(true);
       }
-
-      // Configure video element
-      videoRef.current.srcObject = stream;
-      videoRef.current.setAttribute('playsinline', 'true');
-      videoRef.current.muted = true;
-
-      // Start playback
-      await videoRef.current.play();
-      setIsCameraActive(true);
-
     } catch (error) {
-      let message = "Failed to access camera. ";
-      
-      if (error instanceof Error) {
-        switch (error.name) {
-          case 'NotAllowedError':
-            message = "Please grant camera permissions in your browser settings.";
-            break;
-          case 'NotFoundError':
-            message = "No camera detected. Please connect a camera and try again.";
-            break;
-          case 'NotReadableError':
-            message = "Camera is in use by another application. Please close other camera apps.";
-            break;
-          default:
-            message = error.message || "Camera initialization failed. Please try again.";
-        }
-      }
-
+      console.error('Camera error:', error);
       toast({
         variant: "destructive",
         title: "Camera Error",
-        description: message
+        description: "Failed to access camera"
       });
-      
-      stopCamera();
-    } finally {
-      setIsInitializing(false);
     }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
   };
 
   const captureImage = () => {
     if (!videoRef.current) return;
 
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        throw new Error("Could not initialize canvas");
-      }
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    
+    if (!ctx) return;
 
-      ctx.drawImage(videoRef.current, 0, 0);
-      canvas.toBlob(blob => {
-        if (!blob) {
-          throw new Error("Failed to capture image");
-        }
-        const file = new File([blob], "captured-image.jpg", { type: "image/jpeg" });
-        handleImageSelect(file);
-        stopCamera();
-      }, 'image/jpeg', 0.8);
-    } catch (error) {
-      console.error('Capture error:', error);
-      toast({
-        variant: "destructive",
-        title: "Capture Failed",
-        description: "Failed to capture image. Please try again."
-      });
-    }
+    ctx.drawImage(videoRef.current, 0, 0);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const file = new File([blob], "captured-image.jpg", { type: "image/jpeg" });
+      handleImageSelect(file);
+      stopCamera();
+    }, 'image/jpeg', 0.8);
   };
 
   const handleAnalyze = async () => {
@@ -287,19 +191,14 @@ export default function ImageUpload() {
             />
           </div>
 
-          <div className="space-y-2">
-            <Button
-              size="lg"
-              className="w-full"
-              onClick={captureImage}
-            >
-              <Camera className="mr-2 h-5 w-5" />
-              Capture Image
-            </Button>
-            <p className="text-sm text-center text-muted-foreground">
-              Make sure the image is clear and well-lit
-            </p>
-          </div>
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={captureImage}
+          >
+            <Camera className="mr-2 h-5 w-5" />
+            Capture Image
+          </Button>
         </div>
       )}
 
