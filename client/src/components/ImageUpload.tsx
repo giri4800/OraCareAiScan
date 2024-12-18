@@ -60,19 +60,42 @@ export default function ImageUpload() {
   const startCamera = async () => {
     try {
       console.log("Requesting camera access...");
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        } 
-      });
       
+      // Check if mediaDevices is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Camera API is not supported in this browser");
+      }
+
+      // Try to get the list of available cameras first
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      console.log("Available cameras:", videoDevices);
+
+      if (videoDevices.length === 0) {
+        throw new Error("No camera devices found");
+      }
+
+      // Try environment camera first, fall back to any available camera
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+      } catch (envError) {
+        console.log("Falling back to default camera:", envError);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true
+        });
+      }
+
       if (!videoRef.current) {
         throw new Error("Video element not found");
       }
 
-      console.log("Available cameras:", await navigator.mediaDevices.enumerateDevices());
       console.log("Camera stream obtained with constraints:", stream.getVideoTracks()[0].getConstraints());
 
       videoRef.current.srcObject = stream;
@@ -94,10 +117,28 @@ export default function ImageUpload() {
       console.log("Camera initialized successfully");
     } catch (error) {
       console.error('Camera access error:', error);
+      
+      let errorMessage = "Failed to access camera. ";
+      
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+          errorMessage += "Please grant camera permissions in your browser settings.";
+        } else if (error.name === 'NotFoundError') {
+          errorMessage += "No camera device was found on your device.";
+        } else if (error.name === 'NotSupportedError') {
+          errorMessage += "Your browser doesn't support camera access.";
+        } else if (error.message === "Camera API is not supported in this browser") {
+          errorMessage = error.message;
+        } else {
+          errorMessage += "Please check your camera connection and try again.";
+        }
+      }
+
       toast({
         variant: "destructive",
         title: "Camera Error",
-        description: "Failed to access camera. Please ensure camera permissions are granted.",
+        description: errorMessage,
+        duration: 5000,
       });
     }
   };
@@ -284,6 +325,7 @@ export default function ImageUpload() {
               playsInline
               muted
               className="w-full h-full object-cover"
+              style={{ maxWidth: '100%', maxHeight: '100%' }}
             />
           </div>
           <div className="space-y-2">
