@@ -1,8 +1,8 @@
 import express, { type Request, Response, NextFunction } from "express";
-import fileUpload from "express-fileupload";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { db } from "@db";
+import fileUpload from "express-fileupload";
 
 // Initialize express app
 const app = express();
@@ -11,17 +11,18 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Configure file upload middleware
+// Configure file upload middleware with debug mode for development
 app.use(fileUpload({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max file size
   useTempFiles: false,
   createParentPath: true,
-  debug: process.env.NODE_ENV === 'development',
+  debug: true, // Enable debug mode to see what's happening
   safeFileNames: true,
   preserveExtension: true,
   abortOnLimit: true,
   responseOnLimit: "File size limit has been reached (5MB)",
   uploadTimeout: 30000,
+  parseNested: true // Enable nested file uploads
 }));
 
 // Function to verify required environment variables
@@ -64,6 +65,8 @@ async function initializeDatabase() {
 
 async function startServer() {
   try {
+    log("Starting server initialization...");
+    
     // Verify environment variables before starting the server
     checkRequiredEnvVars();
 
@@ -73,48 +76,28 @@ async function startServer() {
       throw new Error("Failed to initialize database");
     }
 
-    // Initialize Firebase only if we have the service account
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      await import("./lib/firebase.js");
-      log("Firebase Admin initialized successfully");
-    }
-
     // Essential middleware setup
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
 
-    // Configure file upload middleware with proper error handling
+    // Configure file upload middleware
     app.use(fileUpload({
-      limits: { 
-        fileSize: 5 * 1024 * 1024 // 5MB max file size
-      },
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max file size
       useTempFiles: false,
       createParentPath: true,
-      debug: process.env.NODE_ENV === 'development',
+      debug: true, // Enable debug mode
       safeFileNames: true,
       preserveExtension: true,
       abortOnLimit: true,
       responseOnLimit: "File size limit has been reached (5MB)",
       uploadTimeout: 30000,
+      tempFileDir: '/tmp/'
     }));
 
-    // Add error handler specifically for file upload errors
+    // Single error handler for file upload and other errors
     app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-      if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({
-          error: 'File is too large. Maximum size is 5MB'
-        });
-      }
-      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-        return res.status(400).json({
-          error: 'Unexpected file upload'
-        });
-      }
-      next(err);
-    });
-    
-    // Add error handler specifically for file upload errors
-    app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+      console.error('Error occurred:', err);
+      
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({
           error: 'File is too large. Maximum size is 5MB'
