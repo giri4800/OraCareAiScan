@@ -1,15 +1,27 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Camera, Upload, Search, Loader2 } from "lucide-react";
+import { Camera, Upload, Search, Loader2, X } from "lucide-react";
 
 export default function ImageUpload() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
+
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   const handleImageSelect = (file: File) => {
     // Validate file type
@@ -31,6 +43,53 @@ export default function ImageUpload() {
         description: "Image size should be less than 5MB",
       });
       return;
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        streamRef.current = stream;
+        setIsCameraActive(true);
+      }
+    } catch (error) {
+      console.error('Camera access error:', error);
+      toast({
+        variant: "destructive",
+        title: "Camera Error",
+        description: "Failed to access camera. Please ensure camera permissions are granted.",
+      });
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+      setIsCameraActive(false);
+    }
+  };
+
+  const captureImage = () => {
+    if (!videoRef.current) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    
+    if (!ctx) return;
+    
+    ctx.drawImage(videoRef.current, 0, 0);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      
+      const file = new File([blob], "captured-image.jpg", { type: "image/jpeg" });
+      handleImageSelect(file);
+      stopCamera();
+    }, 'image/jpeg', 0.8);
+  };
     }
 
     console.log("Selected file:", {
@@ -125,16 +184,36 @@ export default function ImageUpload() {
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6 p-6">
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-2 gap-6">
         <Button
           variant="outline"
           size="lg"
           className="h-24 flex flex-col items-center justify-center gap-2"
           onClick={() => document.getElementById("file-upload")?.click()}
-          disabled={isUploading}
+          disabled={isUploading || isCameraActive}
         >
           <Upload className="h-6 w-6" />
           <span>Upload Image</span>
+        </Button>
+
+        <Button
+          variant="outline"
+          size="lg"
+          className="h-24 flex flex-col items-center justify-center gap-2"
+          onClick={isCameraActive ? stopCamera : startCamera}
+          disabled={isUploading}
+        >
+          {isCameraActive ? (
+            <>
+              <X className="h-6 w-6" />
+              <span>Stop Camera</span>
+            </>
+          ) : (
+            <>
+              <Camera className="h-6 w-6" />
+              <span>Use Camera</span>
+            </>
+          )}
         </Button>
       </div>
 
@@ -148,6 +227,27 @@ export default function ImageUpload() {
           if (file) handleImageSelect(file);
         }}
       />
+
+      {isCameraActive && (
+        <div className="space-y-4 bg-card p-6 rounded-lg border">
+          <div className="aspect-video relative rounded-lg overflow-hidden border bg-background">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={captureImage}
+          >
+            <Camera className="mr-2 h-5 w-5" />
+            Capture Image
+          </Button>
+        </div>
+      )}
 
       {previewUrl && (
         <div className="space-y-6 bg-card p-6 rounded-lg border">
