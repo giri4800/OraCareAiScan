@@ -4,11 +4,11 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { UploadedFile } from "express-fileupload";
 import { createServer, type Server } from "http";
 import type { Express } from "express";
-import { db } from "@db";
-import { analyses } from "@db/schema";
-import { eq } from "drizzle-orm";
+import * as fs from 'fs';
+import { promisify } from 'util';
 
 const router = Router();
+const readFile = promisify(fs.readFile);
 
 if (!process.env.ANTHROPIC_API_KEY) {
   throw new Error("ANTHROPIC_API_KEY environment variable is required");
@@ -19,23 +19,7 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Get analysis history
-router.get("/api/analysis/history", async (req: Request, res: Response) => {
-  try {
-    console.log("Fetching analysis history");
-    const results = await db.query.analyses.findMany({
-      orderBy: (analyses, { desc }) => [desc(analyses.timestamp)]
-    });
-    
-    console.log(`Found ${results.length} analysis results`);
-    res.json(results);
-  } catch (error) {
-    console.error('Failed to fetch analysis history:', error);
-    res.status(500).json({ error: "Failed to fetch analysis history" });
-  }
-});
-
-// Handle image analysis
+// Upload and analyze image
 router.post("/api/analysis", async (req: Request, res: Response) => {
   try {
     console.log("Received analysis request");
@@ -61,10 +45,27 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
       });
     }
 
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (image.size > maxSize) {
+      console.log("File too large:", image.size);
+      return res.status(400).json({ 
+        error: "File too large. Maximum size is 5MB" 
+      });
+    }
+
     // Convert image to base64
     let base64Image: string;
     try {
-      base64Image = image.data.toString('base64');
+      if (image.tempFilePath) {
+        const imageBuffer = await readFile(image.tempFilePath);
+        base64Image = imageBuffer.toString('base64');
+      } else if (Buffer.isBuffer(image.data)) {
+        base64Image = image.data.toString('base64');
+      } else {
+        throw new Error("Invalid image data format");
+      }
+
       console.log("Image converted to base64, length:", base64Image.length);
 
       // the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
@@ -115,19 +116,17 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
         };
       }
 
-      // Save analysis result to database
-      const [savedAnalysis] = await db.insert(analyses)
-        .values({
-          userId: req.body.userId || 'anonymous', // Handle anonymous users
-          imageUrl: `data:${image.mimetype};base64,${base64Image}`,
-          result: analysisResult.result,
-          confidence: analysisResult.confidence,
-          explanation: analysisResult.explanation,
-        })
-        .returning();
+      const result = {
+        id: 'temp-' + Date.now(),
+        result: analysisResult.result,
+        confidence: analysisResult.confidence,
+        explanation: analysisResult.explanation,
+        imageUrl: `data:${image.mimetype};base64,${base64Image}`,
+        timestamp: new Date()
+      };
 
-      console.log("Analysis saved to database");
-      res.json(savedAnalysis);
+      console.log("Sending analysis result");
+      res.json(result);
 
     } catch (error) {
       console.error('Image processing error:', error);
@@ -148,13 +147,6 @@ router.post("/api/analysis", async (req: Request, res: Response) => {
 });
 
 export function registerRoutes(app: Express): Server {
-  // Register routes under /api prefix
-  app.use('/', router);
-  
-  // Health check route
-  app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
-  });
-
+  app.use(router);
   return createServer(app);
 }
