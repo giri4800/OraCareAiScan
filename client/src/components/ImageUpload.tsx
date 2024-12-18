@@ -83,8 +83,21 @@ export default function ImageUpload() {
       }
 
       // Verify video element exists before proceeding
+      console.log("Checking video element:", {
+        videoRef: videoRef.current ? 'exists' : 'null',
+        elementId: videoRef.current?.id
+      });
+      
+      // Wait for video element to be available in DOM
+      let retries = 0;
+      while (!videoRef.current && retries < 5) {
+        console.log(`Waiting for video element (attempt ${retries + 1})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        retries++;
+      }
+
       if (!videoRef.current) {
-        throw new Error("Video element not found");
+        throw new Error("Video element not found after multiple attempts");
       }
 
       // Clean up any existing streams first
@@ -485,6 +498,7 @@ export default function ImageUpload() {
           <div className="aspect-video relative rounded-lg overflow-hidden border bg-black">
             <video
               ref={videoRef}
+              id="camera-preview"
               autoPlay
               playsInline
               muted
@@ -494,6 +508,7 @@ export default function ImageUpload() {
                 minHeight: '100%',
                 backgroundColor: 'black'
               }}
+              data-testid="camera-preview"
             />
             <div className={`absolute inset-0 flex items-center justify-center text-white transition-opacity duration-300 ${isCameraActive ? 'opacity-0' : 'opacity-100'}`}>
               <div className="bg-black/50 p-4 rounded-lg text-center max-w-md">
