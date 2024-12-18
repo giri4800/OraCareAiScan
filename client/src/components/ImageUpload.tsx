@@ -61,6 +61,10 @@ export default function ImageUpload() {
     try {
       console.log("Starting camera initialization process...");
       
+      // Add initial delay to allow USB device detection
+      console.log("Waiting for device initialization...");
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
       // Check if mediaDevices is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Camera API is not supported in this browser");
@@ -130,18 +134,36 @@ export default function ImageUpload() {
         throw new Error("Failed to detect any cameras after multiple attempts");
       };
 
+      // Check if mediaDevices is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Camera API is not supported in this browser");
+      }
+
       // Request initial camera permissions
       try {
         console.log("Requesting initial camera permissions...");
-        await navigator.mediaDevices.getUserMedia({ video: true });
+        const initialStream = await navigator.mediaDevices.getUserMedia({ 
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
+        });
+        
+        // Clean up initial stream after permission check
+        initialStream.getTracks().forEach(track => track.stop());
         console.log("Camera permission granted");
       } catch (permissionError) {
         console.error("Permission error:", permissionError);
-        throw new Error(
-          permissionError instanceof Error 
-            ? `Camera permission error: ${permissionError.message}`
-            : "Failed to get camera permissions"
-        );
+        const error = permissionError as Error;
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+          throw new Error("Camera access denied. Please grant camera permissions in your browser settings.");
+        } else if (error.name === 'NotFoundError') {
+          throw new Error("No camera devices found. Please ensure your camera is properly connected.");
+        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+          throw new Error("Camera is in use by another application or not accessible. Please close other applications using the camera.");
+        } else {
+          throw new Error(`Camera permission error: ${error.message || 'Failed to initialize camera'}`);
+        }
       }
 
       // Try to get the list of available cameras with retries
