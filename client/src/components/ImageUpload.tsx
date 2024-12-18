@@ -10,16 +10,17 @@ export default function ImageUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
+  const [isVideoReady, setIsVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
 
-  // Handle component mounting
+  // Handle component mounting and cleanup
   useEffect(() => {
-    setIsMounted(true);
+    console.log("Component mounted");
+    
+    // Cleanup function
     return () => {
-      setIsMounted(false);
-      // Cleanup camera stream
+      console.log("Component unmounting, cleaning up camera");
       if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
@@ -27,14 +28,15 @@ export default function ImageUpload() {
     };
   }, []);
 
-  // Pre-initialize video element
+  // Handle video element initialization
   useEffect(() => {
-    if (isMounted && videoRef.current) {
+    if (videoRef.current) {
+      console.log("Video element found, initializing properties");
       videoRef.current.playsInline = true;
       videoRef.current.muted = true;
-      console.log("Video element pre-initialized");
+      setIsVideoReady(true);
     }
-  }, [isMounted]);
+  }, []);
 
   const handleImageSelect = (file: File) => {
     // Validate file type
@@ -65,26 +67,16 @@ export default function ImageUpload() {
   };
 
   const startCamera = async () => {
-    if (!isMounted) {
-      console.log("Component not mounted yet");
-      return;
-    }
-
     try {
-      // Verify video element is available
-      if (!videoRef.current) {
-        throw new Error("Video element not available. Please try refreshing the page.");
-      }
-
-      // Check if browser supports mediaDevices
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Camera API not supported in this browser");
+      // Check if video element is ready
+      if (!videoRef.current || !isVideoReady) {
+        throw new Error("Camera system not ready. Please wait a moment and try again.");
       }
 
       // Stop any existing streams
       if (videoRef.current.srcObject) {
-        const existingStream = videoRef.current.srcObject as MediaStream;
-        existingStream.getTracks().forEach(track => track.stop());
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
         videoRef.current.srcObject = null;
       }
 
@@ -93,43 +85,33 @@ export default function ImageUpload() {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          frameRate: { ideal: 30 },
-          facingMode: 'environment' // Prefer external/rear camera
+          facingMode: 'environment' // Prefer rear/external camera
         }
       });
 
-      // Double check video element is still available
-      if (!videoRef.current) {
-        stream.getTracks().forEach(track => track.stop());
-        throw new Error("Video element lost during initialization");
-      }
-
-      // Attach stream and start playback
+      console.log("Camera stream obtained, attaching to video element");
       videoRef.current.srcObject = stream;
-      console.log("Stream attached to video element");
-
+      
       try {
+        console.log("Starting video playback");
         await videoRef.current.play();
-        console.log("Video playback started");
+        console.log("Video playback started successfully");
         setIsCameraActive(true);
       } catch (playError) {
         stream.getTracks().forEach(track => track.stop());
-        throw new Error("Failed to start video playback: " + (playError as Error).message);
+        throw new Error("Failed to start video playback. Please try again.");
       }
-
     } catch (error) {
       console.error('Camera error:', error);
-      let message = "Failed to access camera. ";
       
+      let message = "Failed to access camera. ";
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
           message = "Camera access denied. Please grant camera permissions in your browser settings.";
         } else if (error.name === 'NotFoundError') {
-          message = "No camera detected. Please ensure your USB camera is properly connected.";
+          message = "No camera detected. Please check your camera connection.";
         } else if (error.name === 'NotReadableError') {
           message = "Cannot access camera. Please ensure it's not in use by another application.";
-        } else if (error.name === 'OverconstrainedError') {
-          message = "Camera doesn't support requested settings. Please try again.";
         } else {
           message = error.message;
         }
@@ -297,8 +279,8 @@ export default function ImageUpload() {
       />
 
       {isCameraActive && (
-        <div className="space-y-4 bg-card p-6 rounded-lg border">
-          <div className="aspect-video relative rounded-lg overflow-hidden border bg-black">
+        <div className="space-y-4">
+          <div className="aspect-video relative rounded-lg overflow-hidden bg-black">
             <video
               ref={videoRef}
               autoPlay
@@ -325,8 +307,8 @@ export default function ImageUpload() {
       )}
 
       {previewUrl && !isCameraActive && (
-        <div className="space-y-6 bg-card p-6 rounded-lg border">
-          <div className="aspect-video relative rounded-lg overflow-hidden border bg-background">
+        <div className="space-y-6">
+          <div className="aspect-video relative rounded-lg overflow-hidden bg-background">
             <img
               src={previewUrl}
               alt="Preview"
@@ -356,7 +338,7 @@ export default function ImageUpload() {
       )}
 
       {isUploading && (
-        <div className="space-y-3 bg-card p-4 rounded-lg border">
+        <div className="space-y-3">
           <Progress value={progress} className="h-2" />
           <p className="text-sm text-muted-foreground text-center font-medium">
             {progress === 100 ? 'Analysis complete!' : 'Analyzing image...'}
