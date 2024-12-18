@@ -29,8 +29,28 @@ export default function ImageUpload() {
 
   const getAvailableCameras = async () => {
     try {
-      // First request permission
-      await navigator.mediaDevices.getUserMedia({ video: true });
+      console.log('Starting camera initialization...');
+      
+      // Stop any existing streams first
+      if (streamRef.current) {
+        console.log('Cleaning up existing stream...');
+        streamRef.current.getTracks().forEach(track => {
+          console.log(`Stopping track: ${track.kind} - ${track.label}`);
+          track.stop();
+        });
+        streamRef.current = null;
+      }
+
+      // Check if mediaDevices is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('MediaDevices API not supported in this browser');
+      }
+
+      console.log('Requesting initial camera access...');
+      // Request permission with minimal constraints first
+      await navigator.mediaDevices.getUserMedia({ 
+        video: true // Start with minimal constraints
+      });
       
       // Then enumerate devices
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -39,9 +59,22 @@ export default function ImageUpload() {
       console.log('Available cameras:', videoDevices);
       setAvailableCameras(videoDevices);
       
-      // Select the first camera by default
-      if (videoDevices.length > 0 && !selectedCamera) {
-        setSelectedCamera(videoDevices[0].deviceId);
+      // Determine default camera based on environment
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      
+      if (videoDevices.length > 0) {
+        if (isMobile) {
+          // On mobile, prefer back camera by default
+          const backCamera = videoDevices.find(device => 
+            device.label.toLowerCase().includes('back') || 
+            device.label.toLowerCase().includes('rear')
+          );
+          setSelectedCamera(backCamera?.deviceId || videoDevices[0].deviceId);
+          setIsFrontCamera(!backCamera); // Set front/back camera state
+        } else {
+          // On desktop, use first available camera
+          setSelectedCamera(videoDevices[0].deviceId);
+        }
       }
       
       return videoDevices;
@@ -50,7 +83,10 @@ export default function ImageUpload() {
       toast({
         variant: "destructive",
         title: "Camera Error",
-        description: "Failed to access camera list. Please check permissions.",
+        description: error instanceof Error 
+          ? `Failed to access camera: ${error.message}`
+          : "Failed to access camera list. Please check permissions.",
+        duration: 5000
       });
       return [];
     }
@@ -58,45 +94,89 @@ export default function ImageUpload() {
 
   const handleCameraCapture = async () => {
     try {
-      // Reset any existing streams
+      // Cleanup: stop any existing streams
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        console.log('Cleaning up existing stream...');
+        streamRef.current.getTracks().forEach(track => {
+          console.log(`Stopping track: ${track.label}`);
+          track.stop();
+        });
+        streamRef.current = null;
       }
 
-      // Get available cameras first
+      // Get available cameras first with very basic constraints
+      console.log('Getting available cameras...');
       const cameras = await getAvailableCameras();
+      if (cameras.length === 0) {
+        throw new Error("No cameras detected");
+      }
       
-      // Determine if we're on a mobile device
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      console.log('Device type:', isMobile ? 'Mobile' : 'Desktop');
       
-      let constraints: MediaTrackConstraints = {
-        width: { ideal: isMobile ? 1280 : 1920 },
-        height: { ideal: isMobile ? 720 : 1080 },
-        // Set quality and framerate for better performance
-        aspectRatio: { ideal: 16/9 },
-        frameRate: { max: 30 }
-      };
+      // Try different constraint configurations in order of preference
+      const constraintConfigs = [
+        // First try: Preferred settings
+        {
+          width: { ideal: isMobile ? 1280 : 1920 },
+          height: { ideal: isMobile ? 720 : 1080 }
+        },
+        // Second try: Minimal settings
+        {
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        // Last try: Let browser choose
+        true
+      ];
 
-      // Handle different camera scenarios
-      if (isMobile) {
-        // On mobile, use facingMode
-        constraints.facingMode = isFrontCamera ? 'user' : 'environment';
-      } else if (selectedCamera) {
-        // On desktop with specific camera selected
-        constraints.deviceId = { exact: selectedCamera };
+      let stream = null;
+      let error = null;
+
+      // Try each constraint configuration
+      for (const constraints of constraintConfigs) {
+        try {
+          console.log('Trying camera constraints:', constraints);
+          
+          const videoConstraints = constraints === true ? true : {
+            ...constraints,
+            ...(isMobile ? {
+              facingMode: { ideal: isFrontCamera ? 'user' : 'environment' }
+            } : selectedCamera ? {
+              deviceId: { exact: selectedCamera }
+            } : {})
+          };
+
+          console.log('Attempting to get media stream with constraints:', videoConstraints);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints,
+            audio: false
+          }).catch(e => {
+            console.error('Failed to get media stream:', e.name, e.message);
+            throw e;
+          });
+
+          if (stream) {
+            const tracks = stream.getVideoTracks();
+            const settings = tracks[0].getSettings();
+            console.log('Successfully got stream with settings:', settings);
+            break; // Exit loop if successful
+          }
+        } catch (e) {
+          error = e;
+          console.log('Failed with constraints:', constraints, 'Error:', e);
+          continue; // Try next constraint set
+        }
       }
 
-      console.log('Attempting to access camera with constraints:', constraints);
-
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: constraints,
-        audio: false
-      });
+      if (!stream) {
+        throw error || new Error('Failed to initialize camera with any constraints');
+      }
 
       // Store the stream reference
       streamRef.current = stream;
-
-      // Ensure video element is ready
+      
+      // Ensure video element exists
       if (!videoRef.current) {
         throw new Error("Video element not initialized");
       }
@@ -104,10 +184,24 @@ export default function ImageUpload() {
       // Set the stream to video element
       videoRef.current.srcObject = stream;
       
-      // Wait for video to be ready
-      await new Promise((resolve) => {
-        if (!videoRef.current) return;
-        videoRef.current.onloadedmetadata = () => resolve(true);
+      console.log('Waiting for video to be ready...');
+      await new Promise<void>((resolve, reject) => {
+        if (!videoRef.current) return reject(new Error("Video element lost"));
+        
+        const timeoutId = setTimeout(() => {
+          reject(new Error("Camera initialization timeout"));
+        }, 10000);
+
+        videoRef.current.onloadedmetadata = async () => {
+          try {
+            await videoRef.current!.play();
+            clearTimeout(timeoutId);
+            resolve();
+          } catch (e) {
+            clearTimeout(timeoutId);
+            reject(e);
+          }
+        };
       });
 
       console.log('Camera stream started successfully');
@@ -115,6 +209,13 @@ export default function ImageUpload() {
       
     } catch (error) {
       console.error('Camera access error:', error);
+      
+      // Cleanup on error
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      
       toast({
         variant: "destructive",
         title: "Camera Error",
